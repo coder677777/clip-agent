@@ -740,7 +740,7 @@ async function openSettings() {
     <div class="field"><label class="toggle"><input type="checkbox" id="sWfb" ${s.whisper_fallback !== false ? "checked" : ""}>If captions are blocked, transcribe the audio on this computer</label>
       <div class="hint">Slower (roughly 10 minutes per hour of video) but always works.</div></div>
     <details class="adv"><summary>Advanced</summary>
-      <div class="field"><label for="sModel">Gemini model</label><input type="text" id="sModel" value="${esc(s.gemini_model || "gemini-2.5-flash")}"></div>
+      <div class="field"><label for="sModel">Gemini model</label><input type="text" id="sModel" placeholder="Automatic (recommended)" value="${esc(s.gemini_model || "")}"><div class="hint">Leave empty to use the best free Flash model your key has.</div></div>
       <div class="field"><label for="sOllama">Ollama model</label><input type="text" id="sOllama" value="${esc(s.ollama_model || "llama3.1:8b")}"></div>
     </details>
     <div style="display:flex;gap:8px;flex-wrap:wrap"><button class="btn primary" id="sSave" type="button">Save settings</button></div>

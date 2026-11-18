@@ -81,7 +81,7 @@ def slugify(text: str, n: int = 40) -> str:
 
 
 def load_config() -> dict:
-    cfg = {"provider": "gemini", "gemini_api_key": "", "gemini_model": "gemini-2.5-flash",
+    cfg = {"provider": "gemini", "gemini_api_key": "", "gemini_model": "",
            "ollama_model": "llama3.1:8b", "ollama_host": "http://localhost:11434", "cookies_browser": "",
            "whisper_fallback": True}
     if CONFIG_PATH.exists():
@@ -514,9 +514,54 @@ def _extract_json(text: str) -> dict:
         raise
 
 
-GEMINI_FALLBACKS = ["gemini-2.5-flash", "gemini-flash-latest", "gemini-2.5-flash-lite", "gemini-flash-lite-latest"]
+# Used only if Google's model list can't be fetched. Normally the list comes from Google (see _gemini_models).
+GEMINI_FALLBACKS = ["gemini-3.8-flash", "gemini-flash-latest", "gemini-flash-lite-latest", "gemini-2.5-flash",
+                    "gemini-2.5-flash-lite"]
 _GEMINI_GOOD: str | None = None          # model that last answered; tried first next time
 _GEMINI_DONE_TODAY: dict[str, float] = {}  # model -> time we learned its daily free quota is used up
+_GEMINI_GONE: set[str] = set()           # models Google says this key can't use
+_GEMINI_LIST: tuple[float, list[str]] | None = None
+_SKIP_WORDS = ("image", "tts", "audio", "live", "embedding", "native", "computer", "cyber", "robotics", "vision",
+               "learnlm", "thinking-exp", "aqa", "omni")
+
+
+def _gemini_models(key: str) -> list[str]:
+    """Ask Google which text models this key can use; best Flash models first, then Flash-Lite."""
+    global _GEMINI_LIST
+    if _GEMINI_LIST and time.time() - _GEMINI_LIST[0] < 6 * 3600:
+        return _GEMINI_LIST[1]
+    try:
+        req = urllib.request.Request("https://generativelanguage.googleapis.com/v1beta/models?pageSize=1000",
+                                     headers={"x-goog-api-key": key})
+        with urllib.request.urlopen(req, timeout=30) as r:
+            data = json.load(r)
+        names = []
+        for mdl in data.get("models", []):
+            name = mdl.get("name", "").split("/")[-1]
+            if "generateContent" not in (mdl.get("supportedGenerationMethods") or []):
+                continue
+            low = name.lower()
+            if "flash" not in low or any(w in low for w in _SKIP_WORDS):
+                continue
+            names.append(name)
+
+        def rank(n):
+            v = re.search(r"gemini-(\d+(?:\.\d+)?)", n)
+            ver = float(v.group(1)) if v else 0.0  # "-latest" aliases go after the exact versions
+            return ("lite" in n, -ver, "preview" in n or "exp" in n, "latest" in n, n)
+        ordered = sorted(set(names), key=rank)
+        if ordered:
+            _GEMINI_LIST = (time.time(), ordered)
+            return ordered
+    except urllib.error.HTTPError as e:
+        if e.code in (400, 401, 403):
+            detail = e.read().decode(errors="ignore").lower()
+            if "api key" in detail or "api_key" in detail or "permission" in detail:
+                raise RuntimeError("Gemini rejected the API key. Double-check it in Settings "
+                                   "(it should start with 'AIza').")
+    except Exception:
+        pass
+    return GEMINI_FALLBACKS
 
 
 def _gemini_quota_info(detail: str) -> dict:
@@ -546,12 +591,18 @@ def gemini_generate(prompt: str, key: str, model: str) -> str:
     for mm, t in list(_GEMINI_DONE_TODAY.items()):
         if time.time() - t > 6 * 3600:
             _GEMINI_DONE_TODAY.pop(mm, None)
-    order = list(dict.fromkeys([m for m in [_GEMINI_GOOD, model] + GEMINI_FALLBACKS if m]))
+    available = _gemini_models(key)
+    preferred = [m for m in [_GEMINI_GOOD, (model or "").strip()] if m]
+    order = list(dict.fromkeys(preferred + available))
+    order = [m for m in order if m not in _GEMINI_GONE]
     order = [m for m in order if m not in _GEMINI_DONE_TODAY] or order
     unavailable, limited, google_said = [], [], ""
     body = {"contents": [{"role": "user", "parts": [{"text": prompt}]}],
             "generationConfig": {"responseMimeType": "application/json", "temperature": 0.6}}
-    for idx, m in enumerate(order):
+    idx = -1
+    while idx + 1 < len(order):
+        idx += 1
+        m = order[idx]
         nxt = order[idx + 1] if idx + 1 < len(order) else None
         url = f"https://generativelanguage.googleapis.com/v1beta/models/{m}:generateContent"
         minute_waits = 0
@@ -561,7 +612,7 @@ def gemini_generate(prompt: str, key: str, model: str) -> str:
             req = urllib.request.Request(url, data=json.dumps(body).encode(),
                                          headers={"Content-Type": "application/json", "x-goog-api-key": key})
             try:
-                with urllib.request.urlopen(req, timeout=240) as r:
+                with urllib.request.urlopen(req, timeout=300) as r:
                     data = json.load(r)
                 parts = data["candidates"][0]["content"]["parts"]
                 _GEMINI_GOOD = m
@@ -590,8 +641,20 @@ def gemini_generate(prompt: str, key: str, model: str) -> str:
                     log(f"Gemini is busy ({e.code}), retrying in {10 * attempt}s...")
                     time.sleep(10 * attempt)
                     continue
-                if e.code in (400, 404) and ("not found" in low or "not supported" in low or "is not available" in low):
+                retired = e.code == 404 or (e.code == 400 and "model" in low and any(
+                    k in low for k in ("not found", "not supported", "not available", "no longer", "deprecated")))
+                if retired:
                     unavailable.append(m)
+                    _GEMINI_GONE.add(m)
+                    sug = re.search(r"use (?:models/)?(gemini-[\w.\-]+)", detail)
+                    if sug and sug.group(1) not in order:
+                        order.insert(idx + 1, sug.group(1))
+                    nxt = order[idx + 1] if idx + 1 < len(order) else None
+                    log(f"{m} isn't available to new Gemini keys anymore." + (f" Using {nxt} instead..." if nxt else ""))
+                    if m == (model or "").strip():  # stop asking for it in future runs
+                        cfg = load_config()
+                        cfg["gemini_model"] = ""
+                        save_config(cfg)
                     break
                 if e.code in (400, 401, 403) and ("api key" in low or "api_key" in low or "permission" in low):
                     raise RuntimeError("Gemini rejected the API key. Double-check it in Settings "
@@ -615,8 +678,9 @@ def gemini_generate(prompt: str, key: str, model: str) -> str:
             "midnight Pacific time (2 AM in Texas). Your progress is saved: press Try again after that. "
             "Or switch to Ollama in Settings, or ask Claude for a clip plan and paste it in."
             + (f" Google said: {google_said}" if google_said else ""))
-    raise RuntimeError(f"None of these Gemini models are available to your key: {', '.join(unavailable)}. "
-                       "Check the model name in Settings > Advanced.")
+    raise RuntimeError(f"Google didn't accept any of these Gemini models for your key: {', '.join(unavailable)}. "
+                       "Press Check for updates in Settings (a newer version may know the new model names), "
+                       "or type a model name from aistudio.google.com into Settings > Advanced.")
 
 
 def ollama_generate(prompt: str, model: str, host: str) -> str:
@@ -736,7 +800,7 @@ def find_clips(meta: dict, words: list[dict], workdir: Path, n_clips: int = 10, 
                   + (f"\nExtra instructions from the user: {extra_instructions}" if extra_instructions else "")
                   + "\n\nTRANSCRIPT:\n" + "\n".join(lines))
         if provider == "gemini":
-            text = gemini_generate(prompt, cfg.get("gemini_api_key", ""), cfg.get("gemini_model", "gemini-flash-latest"))
+            text = gemini_generate(prompt, cfg.get("gemini_api_key", ""), cfg.get("gemini_model", ""))
         elif provider == "ollama":
             text = ollama_generate(prompt, cfg.get("ollama_model", "llama3.1:8b"), cfg.get("ollama_host", "http://localhost:11434"))
         else:
