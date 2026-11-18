@@ -85,6 +85,9 @@ $venvPy = Join-Path $Dir '.venv\Scripts\python.exe'
 if (-not (Test-Path $venvPy)) {
     Say "Setting up (first time takes a few minutes)..."
     & $py -m venv (Join-Path $Dir '.venv')
+    if (-not (Test-Path $venvPy)) {
+        throw "Couldn't set up Python for Clip Agent. Reinstall Python 3.12 from https://www.python.org/downloads/ (tick 'Add python.exe to PATH'), then run the install command again."
+    }
 }
 & $venvPy -m pip install --upgrade pip --quiet --disable-pip-version-check
 & $venvPy -m pip install -r (Join-Path $Dir 'requirements.txt') --disable-pip-version-check
