@@ -1,0 +1,6 @@
+.venv/
+output/
+config.json
+__pycache__/
+*.log
+.update_status.json

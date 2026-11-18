@@ -1,0 +1,6 @@
+yt-dlp[default,deno]
+faster-whisper>=1.1
+imageio-ffmpeg>=0.5
+youtube-transcript-api>=1.0
+fastapi>=0.110
+uvicorn>=0.29
