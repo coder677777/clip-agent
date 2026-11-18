@@ -92,6 +92,8 @@ main { max-width: 1080px; margin: 0 auto; padding: 0 28px 140px; }
 .steps li.now .dot { border-color: var(--hl); background: var(--hl); box-shadow: 0 0 0 5px rgba(255,229,0,.15); animation: pulse 1.4s infinite; }
 .steps li.did { color: var(--text); }
 .steps li.did .dot { border-color: var(--ok); background: var(--ok); }
+.steps li.fail { color: var(--text); font-weight: 600; }
+.steps li.fail .dot { border-color: var(--part); background: var(--part); }
 .bar { height: 6px; background: var(--bg); border-radius: 99px; overflow: hidden; margin-top: 4px; }
 .bar i { display: block; height: 100%; background: var(--hl); width: 0; transition: width .4s; }
 .lastlog { margin-top: 16px; font-size: 13px; color: var(--muted); min-height: 20px; }
@@ -390,7 +392,8 @@ async function startFind() {
       const up = await api("/api/upload?name=" + encodeURIComponent(S.file.name), { method: "POST", body: S.file });
       source = up.path; S.file = null;
     }
-    const r = await api("/api/find", { method: "POST", body: JSON.stringify({ source, clips: S.opts.clips, length: S.opts.length, notes: $("#notes")?.value || "" }) });
+    S.lastFind = { source, clips: S.opts.clips, length: S.opts.length, notes: $("#notes")?.value || "" };
+    const r = await api("/api/find", { method: "POST", body: JSON.stringify(S.lastFind) });
     watchFind(r.job);
   } catch (e) { $("#findBtn").disabled = false; showProgress({ status: "error", error: e.message, logs: [] }); }
 }
@@ -402,26 +405,35 @@ function showProgress(j) {
   const cur = j.stage === "waiting" || j.stage === "upload" ? -1 : order.indexOf(j.stage);
   const p = j.progress;
   const err = j.status === "error";
+  const failAt = err ? Math.max(0, cur) : -1;
   $("#progressWrap").innerHTML = `<div class="progress" aria-live="polite">
     <h2>${err ? "That didn't work" : j.stage === "upload" ? "Adding your video" : "Working on it"}</h2>
-    ${err ? "" : `<ol class="steps">${FIND_STEPS.map(([k, label], i) => `
-      <li class="${i < cur || j.status === "done" ? "did" : i === cur ? "now" : ""}"><span class="dot"></span>
-        <span>${label}${k === "ai" && p && i === cur ? `<div class="bar"><i style="width:${Math.round((p[0] - 1) / p[1] * 100 + 100 / p[1] / 2)}%"></i></div>` : ""}</span>
+    ${j.stage === "upload" && !err ? "" : `<ol class="steps">${FIND_STEPS.map(([k, label], i) => `
+      <li class="${err ? (i < failAt ? "did" : i === failAt ? "fail" : "") : i < cur || j.status === "done" ? "did" : i === cur ? "now" : ""}"><span class="dot"></span>
+        <span>${label}${err && i === failAt ? ` <span class="muted" style="font-weight:400">stopped here</span>` : ""}${k === "ai" && p && i === cur && !err ? `<div class="bar"><i style="width:${Math.round((p[0] - 1) / p[1] * 100 + 100 / p[1] / 2)}%"></i></div>` : ""}</span>
         <span class="muted">${k === "ai" && p && i === cur ? `part ${p[0]} of ${p[1]}` : ""}</span></li>`).join("")}</ol>`}
     ${err ? errorBox(j.error) : `<div class="lastlog">${esc((j.logs || []).slice(-1)[0] || "")}${j.elapsed ? ` <span>(${hms(j.elapsed)})</span>` : ""}</div>`}
   </div>`;
-  $("#retry")?.addEventListener("click", () => { $("#progressWrap").innerHTML = ""; $("#finderWrap").classList.remove("hidden"); const b = $("#findBtn"); if (b) b.disabled = false; });
+  $("#retry")?.addEventListener("click", async () => {
+    if (!S.lastFind) return backToFinder();
+    try { const r = await api("/api/find", { method: "POST", body: JSON.stringify(S.lastFind) }); watchFind(r.job); }
+    catch (e) { toast(e.message); }
+  });
+  $("#changeVideo")?.addEventListener("click", backToFinder);
   $("#errSettings")?.addEventListener("click", openSettings);
 }
+function backToFinder() { $("#progressWrap").innerHTML = ""; $("#finderWrap").classList.remove("hidden"); const b = $("#findBtn"); if (b) b.disabled = false; }
 function errorBox(msg) {
   const m = (msg || "").toLowerCase();
   let fix = "";
-  if (m.includes("429") || m.includes("rate-limit") || m.includes("bot")) fix = "YouTube is limiting requests. Wait 20–30 minutes, or in Settings choose the browser you're signed in to YouTube with.";
+  if (m.includes("timed out") || m.includes("timeout") || m.includes("connection")) fix = "The internet connection was too slow or dropped for a moment. Press Try again: it picks up where it stopped. If it keeps happening, try a different Wi-Fi or turn off any VPN.";
+  else if (m.includes("429") || m.includes("rate-limit") || m.includes("bot")) fix = "YouTube is limiting requests. Wait 20–30 minutes, or in Settings choose the browser you're signed in to YouTube with.";
   else if (m.includes("api key") || m.includes("gemini rejected")) fix = "Check your Gemini key in Settings.";
   else if (m.includes("free-tier limit")) fix = "Your free AI key hit today's limit. Try again tomorrow, or switch to Ollama in Settings.";
   else if (m.includes("ffmpeg") || m.includes("download")) fix = "Try again in a minute. If it keeps happening, close Clip Agent and open it from the desktop icon so it can update.";
   return `<div class="err"><b>${esc(msg || "Something went wrong.")}</b>${fix ? `<span class="muted">${esc(fix)}</span>` : ""}</div>
-    <div style="display:flex;gap:8px;margin-top:14px"><button class="btn" id="retry" type="button">Try again</button>
+    <div style="display:flex;gap:8px;margin-top:14px;flex-wrap:wrap"><button class="btn primary" id="retry" type="button">Try again</button>
+    <button class="btn ghost" id="changeVideo" type="button">Use a different video</button>
     ${fix.includes("Settings") ? `<button class="btn ghost" id="errSettings" type="button">Open Settings</button>` : ""}</div>`;
 }
 async function watchFind(id) {

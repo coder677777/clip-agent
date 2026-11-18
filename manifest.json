@@ -1,7 +1,7 @@
 {
-  "version": "2.0.1",
+  "version": "2.1.0",
   "files": {
-    "clip_agent.py": "69c452666fa93e6c09d2abd1d53f58819a237d343e534a889e602becf97bcfad",
+    "clip_agent.py": "0b6ce480b06cd629afa407cdbf3bb69bed5725ccbf9f63d3b7dc1deae3da6f81",
     "server.py": "7fff9c85b4b7180a7dd927603111dba738120b40a76683d5ff2097af2c18cebb",
     "updater.py": "98a801aa5be32218df177e6fd2284ce7e347e5d653ed16f0dc68c7990a8b2aed",
     "launch.pyw": "cd79a1c7436946ad2eb3b10e94b94f4986b8e64f407afa87e96212c5b7fcfe70",
@@ -9,7 +9,7 @@
     "install.ps1": "9255d44280411b855cfa264511d7ecb0313b0b2fb6e641fe351aee8234cd0680",
     "README.md": "b9fa431f8c05dc4f40f9ee64b70347e4a7bfa703fc92f0a1233825b07e47ebd9",
     "icon.ico": "be9ff83428facf76bb0c149b95b47174d05065703a04b0cd203c6997a2b77f17",
-    "static/index.html": "37f2430d19f021db01204c1545ffc32b8f43287a1f28a9ee059ac0f0b7349a2f",
+    "static/index.html": "9c0c7dd1df75aa7328bb27c12933abdf969f6f9ab2d9f3e1f40c5cdc98ae55ff",
     "static/icon.png": "799cbb3ad11f249f1c9d663cec3c2d716e3a88edb923e641ea5a341114c08857",
     "fonts/Poppins-Black.ttf": "d82aaaf98a9283f9a8edd24e51173337d8eaf09e25cd3d98831f8ec8461748a1",
     "fonts/Poppins-ExtraBold.ttf": "f2ab17c1a63a0ecc12c2461848fc8a469395e3cd2d641803e889c643d9f958e1",

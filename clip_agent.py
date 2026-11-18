@@ -133,7 +133,9 @@ def media_duration(path: Path) -> float:
 def ytdlp_base_opts() -> dict:
     """Shared yt-dlp options. If YouTube asks to 'confirm you're not a bot', set a browser in settings
     so yt-dlp can use that browser's YouTube login cookies."""
-    opts = {"quiet": True, "no_warnings": True, "noprogress": True}
+    opts = {"quiet": True, "no_warnings": True, "noprogress": True,
+            "socket_timeout": 45, "retries": 10, "fragment_retries": 10, "extractor_retries": 3,
+            "file_access_retries": 5}
     browser = (load_config().get("cookies_browser") or "").strip().lower()
     if browser and browser != "none":
         opts["cookiesfrombrowser"] = (browser,)
@@ -200,7 +202,16 @@ def _meta_from_info(info: dict, url: str) -> dict:
 
 def _is_rate_limit(e: Exception) -> bool:
     t = str(e)
-    return "429" in t or "Too Many Requests" in t or "IpBlocked" in type(e).__name__ or "RequestBlocked" in type(e).__name__
+    return ("429" in t or "Too Many Requests" in t or "IpBlocked" in type(e).__name__
+            or "RequestBlocked" in type(e).__name__ or _is_network_blip(e))
+
+
+def _is_network_blip(e: Exception) -> bool:
+    """Timeouts and dropped connections: worth retrying."""
+    t = (str(e) + " " + type(e).__name__).lower()
+    return any(k in t for k in ("timed out", "timeout", "connection reset", "connection aborted", "remote end closed",
+                                "remotedisconnected", "temporarily unavailable", "temporary failure",
+                                "connection refused", "eof occurred", "incompleteread"))
 
 
 def _captions_ytdlp(url: str, info: dict, lang: str) -> list[dict]:
@@ -223,7 +234,7 @@ def _captions_ytdlp(url: str, info: dict, lang: str) -> list[dict]:
     with YoutubeDL(ytdlp_base_opts()) as ydl:
         for i, w in enumerate(waits):
             if w:
-                log(f"YouTube says 'too many requests' - waiting {w}s, then retrying ({i}/{len(waits) - 1})...")
+                log(f"YouTube is limiting or slow to respond - waiting {w}s, then retrying ({i}/{len(waits) - 1})...")
                 time.sleep(w)
             try:
                 raw = ydl.urlopen(track[1]).read().decode("utf-8", errors="ignore")
@@ -284,11 +295,26 @@ def _download_audio(url: str, workdir: Path) -> Path:
 _WHISPER_MODELS = {}
 
 
-def whisper_words(media: Path, model_size: str = "small", offset: float = 0.0, total: float = 0.0) -> list[dict]:
+def _load_whisper(model_size: str):
+    os.environ.setdefault("HF_HUB_DOWNLOAD_TIMEOUT", "120")
+    os.environ.setdefault("HF_HUB_ETAG_TIMEOUT", "60")
+    os.environ.setdefault("HF_HUB_DISABLE_TELEMETRY", "1")
     from faster_whisper import WhisperModel
+    for attempt in range(4):
+        try:
+            return WhisperModel(model_size, device="cpu", compute_type="int8")
+        except Exception as e:
+            if attempt == 3 or not _is_network_blip(e):
+                raise RuntimeError(f"Couldn't download the speech model ({str(e)[:120]}). "
+                                   "Check your internet and press Try again; the download resumes where it stopped.")
+            log(f"Speech model download timed out, retrying ({attempt + 1}/3)...")
+            time.sleep(5 * (attempt + 1))
+
+
+def whisper_words(media: Path, model_size: str = "small", offset: float = 0.0, total: float = 0.0) -> list[dict]:
     if model_size not in _WHISPER_MODELS:
         log(f"Loading Whisper '{model_size}' (first time downloads the model)...")
-        _WHISPER_MODELS[model_size] = WhisperModel(model_size, device="cpu", compute_type="int8")
+        _WHISPER_MODELS[model_size] = _load_whisper(model_size)
     segs, _ = _WHISPER_MODELS[model_size].transcribe(str(media), word_timestamps=True, vad_filter=True)
     words, last_report, t0 = [], 0.0, time.time()
     for s in segs:
@@ -459,7 +485,7 @@ def gemini_generate(prompt: str, key: str, model: str) -> str:
             req = urllib.request.Request(url, data=json.dumps(body).encode(),
                                          headers={"Content-Type": "application/json", "x-goog-api-key": key})
             try:
-                with urllib.request.urlopen(req, timeout=600) as r:
+                with urllib.request.urlopen(req, timeout=240) as r:
                     data = json.load(r)
                 parts = data["candidates"][0]["content"]["parts"]
                 return "".join(p.get("text", "") for p in parts if not p.get("thought"))
@@ -481,6 +507,16 @@ def gemini_generate(prompt: str, key: str, model: str) -> str:
                 raise RuntimeError(f"Gemini error {e.code}: {detail}")
             except (KeyError, IndexError):
                 raise RuntimeError(f"Gemini returned no text (it may have blocked the content). Model: {m}")
+            except Exception as e:  # timeouts, dropped connections, flaky Wi-Fi
+                if not _is_network_blip(e) and not isinstance(e, (OSError, ValueError)):
+                    raise
+                if attempt >= 4:
+                    raise RuntimeError("Couldn't reach Gemini: the connection kept timing out. Check your internet, "
+                                       "then press Try again (finished parts are saved).")
+                wait = 10 * (attempt + 1)
+                log(f"Gemini didn't answer in time ({str(e)[:60]}). Retrying in {wait}s...")
+                time.sleep(wait)
+                continue
         else:
             raise RuntimeError("Gemini free-tier limit reached for now. Try again later or use fewer clips.")
     raise RuntimeError(f"None of these Gemini models are available to your key: {tried}")
@@ -574,11 +610,26 @@ def find_clips(meta: dict, words: list[dict], workdir: Path, n_clips: int = 10, 
     n_windows = max(1, math.ceil(duration / window))
     per_window = max(3, math.ceil(n_clips * 1.6 / n_windows))
     candidates = []
+    import hashlib
+    run_key = hashlib.sha1(json.dumps([provider, n_clips, target_len, extra_instructions, window]).encode()).hexdigest()[:10]
+    ai_dir = workdir / "ai_sections" / run_key
+    ai_dir.mkdir(parents=True, exist_ok=True)
     for wi in range(n_windows):
         a, b = wi * window, min(duration, (wi + 1) * window) + (0 if wi == n_windows - 1 else 0)
         lines = transcript_lines(words, a, b + 60)  # small overlap
         if len(lines) < 5:
             continue
+        saved = ai_dir / f"section_{wi:02d}.json"
+        if saved.exists():
+            try:
+                data = json.loads(saved.read_text(encoding="utf-8"))
+                log(f"AI is reading {hms(a)} - {hms(b)} ({wi + 1}/{n_windows})... (already done)")
+                for c in data.get("clips", []):
+                    if isinstance(c, dict):
+                        candidates.append(c)
+                continue
+            except Exception:
+                pass
         log(f"AI is reading {hms(a)} - {hms(b)} ({wi + 1}/{n_windows})...")
         prompt = (PLAYBOOK + "\n\n" + SCHEMA +
                   f"\n\nVIDEO: \"{meta.get('title')}\" by {meta.get('channel') or 'unknown'}, total length {hms(duration)}."
@@ -598,11 +649,14 @@ def find_clips(meta: dict, words: list[dict], workdir: Path, n_clips: int = 10, 
         except Exception:
             log("AI returned something that isn't valid JSON for this section - skipping it.")
             continue
+        kept = []
         for c in data.get("clips", []) if isinstance(data, dict) else []:
             if isinstance(c, dict):
-                if c.get("series"):
+                if isinstance(c.get("series"), dict):
                     c["series"]["id"] = f"w{wi}_{c['series'].get('id', 's')}"
-                candidates.append(c)
+                kept.append(c)
+        candidates.extend(kept)
+        saved.write_text(json.dumps({"clips": kept}), encoding="utf-8")
     return build_plan(meta, words, workdir, candidates, n_clips, target_len)
 
 
