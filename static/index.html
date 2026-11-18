@@ -426,7 +426,8 @@ function backToFinder() { $("#progressWrap").innerHTML = ""; $("#finderWrap").cl
 function errorBox(msg) {
   const m = (msg || "").toLowerCase();
   let fix = "";
-  if (m.includes("timed out") || m.includes("timeout") || m.includes("connection")) fix = "The internet connection was too slow or dropped for a moment. Press Try again: it picks up where it stopped. If it keeps happening, try a different Wi-Fi or turn off any VPN.";
+  if (m.includes("cookie")) fix = "Clip Agent couldn't read your browser's YouTube login. In Settings, set the browser option to \"Don't read it from a browser\", or upload a login file instead.";
+  else if (m.includes("timed out") || m.includes("timeout") || m.includes("connection")) fix = "The internet connection was too slow or dropped for a moment. Press Try again: it picks up where it stopped. If it keeps happening, try a different Wi-Fi or turn off any VPN.";
   else if (m.includes("429") || m.includes("rate-limit") || m.includes("bot")) fix = "YouTube is limiting requests. Wait 20–30 minutes, or in Settings choose the browser you're signed in to YouTube with.";
   else if (m.includes("api key") || m.includes("gemini rejected")) fix = "Check your Gemini key in Settings.";
   else if (m.includes("free-tier limit")) fix = "Your free AI key hit today's limit. Try again tomorrow, or switch to Ollama in Settings.";
@@ -721,9 +722,21 @@ async function openSettings() {
       <label><input type="radio" name="prov" value="ollama" ${s.provider === "ollama" ? "checked" : ""}>Ollama (offline)</label></div></div>
     <div class="field"><label for="sKey">Gemini key</label><input type="password" id="sKey" placeholder="${st?.key_hint ? "Saved (" + esc(st.key_hint) + "). Paste a new one to replace it." : "Paste your key"}">
       <div class="hint">Get a free key at <a href="https://aistudio.google.com/apikey" target="_blank" rel="noopener">aistudio.google.com/apikey</a>.</div></div>
-    <div class="field"><label for="sCookies">If YouTube blocks you</label>
-      <select id="sCookies">${["", "chrome", "edge", "firefox", "brave"].map(b => `<option value="${b}" ${(s.cookies_browser || "") === b ? "selected" : ""}>${b ? "Use my YouTube login from " + b[0].toUpperCase() + b.slice(1) : "Don't use my login"}</option>`).join("")}</select>
-      <div class="hint">Pick the browser where you're signed in to YouTube. It makes "too many requests" blocks much rarer.</div></div>
+    <div class="field"><span class="lbl">If YouTube blocks you</span>
+      <div class="hint" style="margin:0 0 10px">Giving Clip Agent your YouTube login makes "too many requests" and "confirm you're not a bot" blocks much rarer. It stays on this computer.</div>
+      ${st?.has_cookies_file ? `<div class="post" style="margin:0 0 10px;align-items:center"><p>YouTube login file saved. Clip Agent uses it for every download.</p><button class="btn small ghost danger" id="sCookieDel" type="button">Remove</button></div>` : ""}
+      <details class="adv" ${st?.has_cookies_file ? "" : "open"}><summary>${st?.has_cookies_file ? "Replace the login file" : "Add your login (works with Chrome)"}</summary>
+        <ol class="hint" style="margin:0 0 10px;padding-left:18px">
+          <li>In Chrome, install the <a href="https://chromewebstore.google.com/search/Get%20cookies.txt%20LOCALLY" target="_blank" rel="noopener">Get cookies.txt LOCALLY</a> extension.</li>
+          <li>Open youtube.com, signed in. Click the extension, then <b>Export</b>.</li>
+          <li>Upload the file it saves here.</li></ol>
+        <input type="file" id="sCookieFile" accept=".txt,text/plain" class="hidden">
+        <button class="btn small" id="sCookieUp" type="button">Upload login file</button>
+        <div class="hint">YouTube can flag accounts used with downloaders. A spare Google account is the safest choice.</div>
+      </details>
+      <label for="sCookies" class="hint" style="display:block;margin-top:10px">Or read the login straight from a browser:</label>
+      <select id="sCookies">${[["", "Don't read it from a browser"], ["firefox", "Firefox (works on Windows)"], ["chrome", "Chrome (usually blocked on Windows)"], ["edge", "Edge (usually blocked on Windows)"], ["brave", "Brave (usually blocked on Windows)"]].map(([b, label]) => `<option value="${b}" ${(s.cookies_browser || "") === b ? "selected" : ""}>${label}</option>`).join("")}</select>
+    </div>
     <div class="field"><label class="toggle"><input type="checkbox" id="sWfb" ${s.whisper_fallback !== false ? "checked" : ""}>If captions are blocked, transcribe the audio on this computer</label>
       <div class="hint">Slower (roughly 10 minutes per hour of video) but always works.</div></div>
     <details class="adv"><summary>Advanced</summary>
@@ -742,6 +755,13 @@ async function openSettings() {
     if ($("#sKey").value.trim()) body.gemini_api_key = $("#sKey").value.trim();
     await api("/api/settings", { method: "POST", body: JSON.stringify(body) }); toast("Settings saved"); closeOverlay(); route();
   };
+  $("#sCookieUp").onclick = () => $("#sCookieFile").click();
+  $("#sCookieFile").onchange = async e => {
+    const f = e.target.files[0]; if (!f) return;
+    try { const r = await api("/api/cookies", { method: "POST", body: f }); toast("YouTube login saved"); openSettings(); }
+    catch (err) { toast(err.message); }
+  };
+  $("#sCookieDel")?.addEventListener("click", async () => { await api("/api/cookies", { method: "DELETE" }); toast("Login file removed"); openSettings(); });
   $("#sUpdate").onclick = async () => {
     $("#sUpdate").disabled = true; $("#sUpdate").textContent = "Checking…";
     try { const r = await api("/api/update", { method: "POST" });

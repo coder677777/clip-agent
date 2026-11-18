@@ -173,6 +173,7 @@ def state():
         pass
     return {"app": "clip-agent", "version": app_version(), "has_key": bool(cfg.get("gemini_api_key")),
             "provider": cfg.get("provider", "gemini"), "update": upd,
+            "has_cookies_file": ca.COOKIES_FILE.exists(),
             "settings": {k: v for k, v in cfg.items() if k != "gemini_api_key"},
             "key_hint": ("…" + cfg["gemini_api_key"][-4:]) if cfg.get("gemini_api_key") else ""}
 
@@ -187,6 +188,28 @@ async def save_settings(req: Request):
     if body.get("gemini_api_key"):
         cfg["gemini_api_key"] = body["gemini_api_key"].strip()
     ca.save_config(cfg)
+    ca._COOKIES_BROKEN = False  # give the (possibly new) login setting a fresh try
+    return {"ok": True}
+
+
+@app.post("/api/cookies")
+async def save_cookies(req: Request):
+    text = (await req.body()).decode("utf-8", errors="ignore")
+    lines = [ln for ln in text.splitlines() if ln.strip() and not ln.startswith("#")]
+    yt = [ln for ln in lines if "youtube.com" in ln and len(ln.split("\t")) >= 7]
+    if not yt:
+        raise HTTPException(400, "That file doesn't have YouTube cookies in it. Export it while you're on youtube.com "
+                                 "and signed in, and choose the Netscape / cookies.txt format.")
+    if not text.startswith("# Netscape"):
+        text = "# Netscape HTTP Cookie File\n" + text
+    ca.COOKIES_FILE.write_text(text, encoding="utf-8")
+    ca._COOKIES_BROKEN = False
+    return {"ok": True, "cookies": len(yt)}
+
+
+@app.delete("/api/cookies")
+def delete_cookies():
+    ca.COOKIES_FILE.unlink(missing_ok=True)
     return {"ok": True}
 
 

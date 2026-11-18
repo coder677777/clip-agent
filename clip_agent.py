@@ -130,16 +130,43 @@ def media_duration(path: Path) -> float:
     return int(m.group(1)) * 3600 + int(m.group(2)) * 60 + float(m.group(3))
 
 
-def ytdlp_base_opts() -> dict:
-    """Shared yt-dlp options. If YouTube asks to 'confirm you're not a bot', set a browser in settings
-    so yt-dlp can use that browser's YouTube login cookies."""
+COOKIES_FILE = HERE / "cookies.txt"
+_COOKIES_BROKEN = False  # set when the browser's login can't be read; then we carry on without it
+
+
+def ytdlp_base_opts(use_cookies: bool = True) -> dict:
+    """Shared yt-dlp options. To get past 'confirm you're not a bot' blocks, Settings can give yt-dlp the
+    user's YouTube login: an exported cookies.txt file (works with any browser) or a browser to read from."""
     opts = {"quiet": True, "no_warnings": True, "noprogress": True,
             "socket_timeout": 45, "retries": 10, "fragment_retries": 10, "extractor_retries": 3,
             "file_access_retries": 5}
-    browser = (load_config().get("cookies_browser") or "").strip().lower()
-    if browser and browser != "none":
-        opts["cookiesfrombrowser"] = (browser,)
+    if use_cookies and not _COOKIES_BROKEN:
+        if COOKIES_FILE.exists():
+            opts["cookiefile"] = str(COOKIES_FILE)
+        else:
+            browser = (load_config().get("cookies_browser") or "").strip().lower()
+            if browser and browser != "none":
+                opts["cookiesfrombrowser"] = (browser,)
     return opts
+
+
+def _is_cookie_error(e: Exception) -> bool:
+    t = (str(e) + " " + type(e).__name__).lower()
+    return any(k in t for k in ("cookie", "dpapi", "decrypt", "app-bound", "keyring"))
+
+
+def run_ytdlp(fn):
+    """Run fn(opts). If reading the YouTube login fails (Chrome/Edge lock it on Windows), retry without it."""
+    global _COOKIES_BROKEN
+    try:
+        return fn(ytdlp_base_opts())
+    except Exception as e:
+        if not _is_cookie_error(e) or _COOKIES_BROKEN:
+            raise
+        _COOKIES_BROKEN = True
+        log("Couldn't read your YouTube login from the browser (Chrome and Edge lock it on Windows). "
+            "Continuing without it. Settings has a way that works with Chrome.")
+        return fn(ytdlp_base_opts())
 
 
 def is_url(s: str) -> bool:
@@ -188,10 +215,12 @@ def parse_json3(data: dict) -> list[dict]:
 def youtube_info(url: str) -> dict:
     """Video info only (title, length, caption track list) - one light request."""
     from yt_dlp import YoutubeDL
-    opts = ytdlp_base_opts()
-    opts.update({"skip_download": True})
-    with YoutubeDL(opts) as ydl:
-        return ydl.sanitize_info(ydl.extract_info(url, download=False))
+
+    def go(opts):
+        opts.update({"skip_download": True})
+        with YoutubeDL(opts) as ydl:
+            return ydl.sanitize_info(ydl.extract_info(url, download=False))
+    return run_ytdlp(go)
 
 
 def _meta_from_info(info: dict, url: str) -> dict:
@@ -230,9 +259,13 @@ def _captions_ytdlp(url: str, info: dict, lang: str) -> list[dict]:
             break
     if not track:
         return []
+    global _COOKIES_BROKEN
     waits = [0, 20, 45, 90]
-    with YoutubeDL(ytdlp_base_opts()) as ydl:
-        for i, w in enumerate(waits):
+    ydl = YoutubeDL(ytdlp_base_opts())
+    try:
+        i = 0
+        while i < len(waits):
+            w = waits[i]
             if w:
                 log(f"YouTube is limiting or slow to respond - waiting {w}s, then retrying ({i}/{len(waits) - 1})...")
                 time.sleep(w)
@@ -240,10 +273,19 @@ def _captions_ytdlp(url: str, info: dict, lang: str) -> list[dict]:
                 raw = ydl.urlopen(track[1]).read().decode("utf-8", errors="ignore")
                 return parse_json3(json.loads(raw))
             except Exception as e:
+                if _is_cookie_error(e) and not _COOKIES_BROKEN:
+                    _COOKIES_BROKEN = True
+                    log("Couldn't read your YouTube login from the browser. Continuing without it.")
+                    ydl.close()
+                    ydl = YoutubeDL(ytdlp_base_opts())
+                    continue  # same attempt again, no wait
                 if _is_rate_limit(e):
+                    i += 1
                     continue
                 log(f"Caption download failed ({str(e)[:120]}).")
                 return []
+    finally:
+        ydl.close()
     log("YouTube is still rate-limiting caption downloads.")
     return []
 
@@ -281,11 +323,12 @@ def _download_audio(url: str, workdir: Path) -> Path:
     from yt_dlp import YoutubeDL
     for old in workdir.glob("audio.*"):
         old.unlink()
-    opts = ytdlp_base_opts()
-    opts.update({"format": "ba[ext=m4a]/ba/b", "outtmpl": str(workdir / "audio.%(ext)s"),
-                 "ffmpeg_location": ffmpeg_exe()})
-    with YoutubeDL(opts) as ydl:
-        ydl.download([url])
+    def go(opts):
+        opts.update({"format": "ba[ext=m4a]/ba/b", "outtmpl": str(workdir / "audio.%(ext)s"),
+                     "ffmpeg_location": ffmpeg_exe()})
+        with YoutubeDL(opts) as ydl:
+            ydl.download([url])
+    run_ytdlp(go)
     files = [f for f in workdir.glob("audio.*") if f.suffix not in (".part", ".ytdl")]
     if not files:
         raise RuntimeError("Audio download failed.")
@@ -858,15 +901,16 @@ def fetch_range(meta: dict, start: float, end: float, out_base: Path) -> Path:
     if meta.get("is_url"):
         from yt_dlp import YoutubeDL
         from yt_dlp.utils import download_range_func
-        opts = ytdlp_base_opts()
-        opts.update({
-            "format": "bv*[height<=1080][vcodec^=avc1]+ba[ext=m4a]/bv*[height<=1080]+ba/b[height<=1080]/b",
-            "download_ranges": download_range_func(None, [(start, end)]),
-            "force_keyframes_at_cuts": True, "merge_output_format": "mp4",
-            "outtmpl": str(out_base) + ".%(ext)s", "ffmpeg_location": ffmpeg_exe(),
-        })
-        with YoutubeDL(opts) as ydl:
-            ydl.download([meta.get("url") or meta["source"]])
+        def go(opts):
+            opts.update({
+                "format": "bv*[height<=1080][vcodec^=avc1]+ba[ext=m4a]/bv*[height<=1080]+ba/b[height<=1080]/b",
+                "download_ranges": download_range_func(None, [(start, end)]),
+                "force_keyframes_at_cuts": True, "merge_output_format": "mp4",
+                "outtmpl": str(out_base) + ".%(ext)s", "ffmpeg_location": ffmpeg_exe(),
+            })
+            with YoutubeDL(opts) as ydl:
+                ydl.download([meta.get("url") or meta["source"]])
+        run_ytdlp(go)
         files = [f for f in out_base.parent.glob(out_base.name + ".*") if f.suffix in (".mp4", ".mkv", ".webm")]
         if not files:
             raise RuntimeError("Download of the clip section failed.")
