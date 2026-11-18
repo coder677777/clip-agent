@@ -69,7 +69,8 @@ def update(log=print) -> dict:
         if "requirements.txt" in res["files"]:
             log("Installing new requirements...")
             flags = 0x08000000 if sys.platform.startswith("win") else 0  # no console window
-            subprocess.run([_python_console(), "-m", "pip", "install", "-q", "-r", str(HERE / "requirements.txt")],
+            subprocess.run([_python_console(), "-m", "pip", "install", "-q", "--timeout", "120", "--retries", "10",
+                            "-r", str(HERE / "requirements.txt")],
                            creationflags=flags, check=False)
         res["updated"] = bool(res["files"])
         res["version"] = remote.get("version")

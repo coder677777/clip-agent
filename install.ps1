@@ -66,7 +66,11 @@ $manifest = $manifestText | ConvertFrom-Json
 foreach ($f in $manifest.files.PSObject.Properties.Name) {
     $dest = Join-Path $Dir ($f -replace '/', '\')
     New-Item -ItemType Directory -Force -Path (Split-Path $dest) | Out-Null
-    Invoke-WebRequest -UseBasicParsing "$Raw/$f" -OutFile $dest
+    for ($try = 1; $try -le 4; $try++) {
+        try { Invoke-WebRequest -UseBasicParsing -TimeoutSec 120 "$Raw/$f" -OutFile $dest; break }
+        catch { if ($try -eq 4) { throw "Couldn't download $f (internet too slow?). Run the install command again." }
+                Say "Download timed out, retrying ($try/3)..."; Start-Sleep -Seconds (5 * $try) }
+    }
 }
 [IO.File]::WriteAllText((Join-Path $Dir 'manifest.json'), $manifestText)
 
@@ -89,9 +93,14 @@ if (-not (Test-Path $venvPy)) {
         throw "Couldn't set up Python for Clip Agent. Reinstall Python 3.12 from https://www.python.org/downloads/ (tick 'Add python.exe to PATH'), then run the install command again."
     }
 }
-& $venvPy -m pip install --upgrade pip --quiet --disable-pip-version-check
-& $venvPy -m pip install -r (Join-Path $Dir 'requirements.txt') --disable-pip-version-check
-if ($LASTEXITCODE -ne 0) { throw "Installing packages failed. Scroll up for the error, then run the install command again." }
+& $venvPy -m pip install --upgrade pip --quiet --disable-pip-version-check --timeout 120 --retries 10
+$pipOk = $false
+for ($try = 1; $try -le 3; $try++) {
+    & $venvPy -m pip install -r (Join-Path $Dir 'requirements.txt') --disable-pip-version-check --timeout 120 --retries 10
+    if ($LASTEXITCODE -eq 0) { $pipOk = $true; break }
+    if ($try -lt 3) { Say "A download was too slow. Trying again ($try/2) - finished downloads are kept..."; Start-Sleep -Seconds 10 }
+}
+if (-not $pipOk) { throw "Installing packages failed (the internet connection kept timing out). Run the install command again; it continues where it stopped." }
 
 # 4. Icons
 $pyw = Join-Path $Dir '.venv\Scripts\pythonw.exe'

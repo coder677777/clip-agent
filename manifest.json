@@ -1,12 +1,12 @@
 {
-  "version": "2.1.0",
+  "version": "2.1.1",
   "files": {
     "clip_agent.py": "0b6ce480b06cd629afa407cdbf3bb69bed5725ccbf9f63d3b7dc1deae3da6f81",
     "server.py": "7fff9c85b4b7180a7dd927603111dba738120b40a76683d5ff2097af2c18cebb",
-    "updater.py": "98a801aa5be32218df177e6fd2284ce7e347e5d653ed16f0dc68c7990a8b2aed",
+    "updater.py": "f47979706aa693d6372098c9c2b923063540cafdffe5998c0e3f7deb65e4d5c7",
     "launch.pyw": "cd79a1c7436946ad2eb3b10e94b94f4986b8e64f407afa87e96212c5b7fcfe70",
     "requirements.txt": "4baab51b6686385e5ccfa847375935ca0d866877f4a79702786606810d233635",
-    "install.ps1": "9255d44280411b855cfa264511d7ecb0313b0b2fb6e641fe351aee8234cd0680",
+    "install.ps1": "e5b0e95930fc51ba8e1bed530e041436c2e07e3b5b5096f8fc5a0244ca7abddf",
     "README.md": "b9fa431f8c05dc4f40f9ee64b70347e4a7bfa703fc92f0a1233825b07e47ebd9",
     "icon.ico": "be9ff83428facf76bb0c149b95b47174d05065703a04b0cd203c6997a2b77f17",
     "static/index.html": "9c0c7dd1df75aa7328bb27c12933abdf969f6f9ab2d9f3e1f40c5cdc98ae55ff",
