@@ -430,7 +430,7 @@ function errorBox(msg) {
   else if (m.includes("timed out") || m.includes("timeout") || m.includes("connection")) fix = "The internet connection was too slow or dropped for a moment. Press Try again: it picks up where it stopped. If it keeps happening, try a different Wi-Fi or turn off any VPN.";
   else if (m.includes("429") || m.includes("rate-limit") || m.includes("bot")) fix = "YouTube is limiting requests. Wait 20–30 minutes, or in Settings choose the browser you're signed in to YouTube with.";
   else if (m.includes("api key") || m.includes("gemini rejected")) fix = "Check your Gemini key in Settings.";
-  else if (m.includes("free-tier limit")) fix = "Your free AI key hit today's limit. Try again tomorrow, or switch to Ollama in Settings.";
+  else if (m.includes("free requests") || m.includes("free-tier limit")) fix = "Waiting won't help today. After the reset, press Try again and it continues where it stopped. Or paste a clip plan from Claude now (on the home page).";
   else if (m.includes("ffmpeg") || m.includes("download")) fix = "Try again in a minute. If it keeps happening, close Clip Agent and open it from the desktop icon so it can update.";
   return `<div class="err"><b>${esc(msg || "Something went wrong.")}</b>${fix ? `<span class="muted">${esc(fix)}</span>` : ""}</div>
     <div style="display:flex;gap:8px;margin-top:14px;flex-wrap:wrap"><button class="btn primary" id="retry" type="button">Try again</button>
@@ -740,7 +740,7 @@ async function openSettings() {
     <div class="field"><label class="toggle"><input type="checkbox" id="sWfb" ${s.whisper_fallback !== false ? "checked" : ""}>If captions are blocked, transcribe the audio on this computer</label>
       <div class="hint">Slower (roughly 10 minutes per hour of video) but always works.</div></div>
     <details class="adv"><summary>Advanced</summary>
-      <div class="field"><label for="sModel">Gemini model</label><input type="text" id="sModel" value="${esc(s.gemini_model || "gemini-flash-latest")}"></div>
+      <div class="field"><label for="sModel">Gemini model</label><input type="text" id="sModel" value="${esc(s.gemini_model || "gemini-2.5-flash")}"></div>
       <div class="field"><label for="sOllama">Ollama model</label><input type="text" id="sOllama" value="${esc(s.ollama_model || "llama3.1:8b")}"></div>
     </details>
     <div style="display:flex;gap:8px;flex-wrap:wrap"><button class="btn primary" id="sSave" type="button">Save settings</button></div>

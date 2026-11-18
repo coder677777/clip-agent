@@ -81,7 +81,7 @@ def slugify(text: str, n: int = 40) -> str:
 
 
 def load_config() -> dict:
-    cfg = {"provider": "gemini", "gemini_api_key": "", "gemini_model": "gemini-flash-latest",
+    cfg = {"provider": "gemini", "gemini_api_key": "", "gemini_model": "gemini-2.5-flash",
            "ollama_model": "llama3.1:8b", "ollama_host": "http://localhost:11434", "cookies_browser": "",
            "whisper_fallback": True}
     if CONFIG_PATH.exists():
@@ -514,55 +514,109 @@ def _extract_json(text: str) -> dict:
         raise
 
 
+GEMINI_FALLBACKS = ["gemini-2.5-flash", "gemini-flash-latest", "gemini-2.5-flash-lite", "gemini-flash-lite-latest"]
+_GEMINI_GOOD: str | None = None          # model that last answered; tried first next time
+_GEMINI_DONE_TODAY: dict[str, float] = {}  # model -> time we learned its daily free quota is used up
+
+
+def _gemini_quota_info(detail: str) -> dict:
+    """Read Google's 429 body: is it a per-day limit (waiting won't help) or per-minute (wait a bit)?"""
+    info = {"daily": False, "zero": False, "delay": None, "msg": ""}
+    try:
+        err = json.loads(detail).get("error", {})
+    except Exception:
+        err = {}
+    msg = err.get("message", "") or detail
+    info["msg"] = msg.split("\n")[0][:220]
+    blob = detail.lower()
+    info["daily"] = "perday" in blob or "per day" in blob or "requestsperday" in blob
+    info["zero"] = bool(re.search(r"limit:\s*0\b", blob)) or '"quotavalue": "0"' in blob
+    m = re.search(r'"retryDelay":\s*"(\d+)', detail) or re.search(r"retry in (\d+)", detail)
+    if m:
+        info["delay"] = int(m.group(1))
+    return info
+
+
 def gemini_generate(prompt: str, key: str, model: str) -> str:
+    global _GEMINI_GOOD
     if not key:
         raise RuntimeError("No Gemini API key. Get a free one at https://aistudio.google.com/apikey "
                            "and paste it into the app's settings.")
-    fallbacks = [model, "gemini-flash-latest", "gemini-2.5-flash", "gemini-flash-lite-latest", "gemini-2.5-flash-lite"]
-    tried = []
-    for m in dict.fromkeys(fallbacks):
+    # forget "used up today" notes after 6 hours (quotas reset daily at midnight Pacific time)
+    for mm, t in list(_GEMINI_DONE_TODAY.items()):
+        if time.time() - t > 6 * 3600:
+            _GEMINI_DONE_TODAY.pop(mm, None)
+    order = list(dict.fromkeys([m for m in [_GEMINI_GOOD, model] + GEMINI_FALLBACKS if m]))
+    order = [m for m in order if m not in _GEMINI_DONE_TODAY] or order
+    unavailable, limited, google_said = [], [], ""
+    body = {"contents": [{"role": "user", "parts": [{"text": prompt}]}],
+            "generationConfig": {"responseMimeType": "application/json", "temperature": 0.6}}
+    for idx, m in enumerate(order):
+        nxt = order[idx + 1] if idx + 1 < len(order) else None
         url = f"https://generativelanguage.googleapis.com/v1beta/models/{m}:generateContent"
-        body = {"contents": [{"role": "user", "parts": [{"text": prompt}]}],
-                "generationConfig": {"responseMimeType": "application/json", "temperature": 0.6}}
-        for attempt in range(6):
+        minute_waits = 0
+        attempt = 0
+        while attempt < 6:
+            attempt += 1
             req = urllib.request.Request(url, data=json.dumps(body).encode(),
                                          headers={"Content-Type": "application/json", "x-goog-api-key": key})
             try:
                 with urllib.request.urlopen(req, timeout=240) as r:
                     data = json.load(r)
                 parts = data["candidates"][0]["content"]["parts"]
+                _GEMINI_GOOD = m
                 return "".join(p.get("text", "") for p in parts if not p.get("thought"))
             except urllib.error.HTTPError as e:
-                detail = e.read().decode(errors="ignore")[:400]
-                if e.code in (429, 500, 503):
-                    wait = 15 * (attempt + 1)
-                    m2 = re.search(r'"retryDelay":\s*"(\d+)', detail)
-                    if m2:
-                        wait = int(m2.group(1)) + 2
-                    log(f"Gemini is rate-limiting the free tier, waiting {wait}s...")
-                    time.sleep(min(wait, 90))
+                detail = e.read().decode(errors="ignore")
+                low = detail.lower()
+                if e.code == 429:
+                    q = _gemini_quota_info(detail)
+                    google_said = q["msg"]
+                    if q["daily"] or q["zero"] or minute_waits >= 2:
+                        _GEMINI_DONE_TODAY[m] = time.time()
+                        limited.append(m)
+                        why = "has no free quota on your key" if q["zero"] else "used up its free requests for today"
+                        log(f"{m} {why}." + (f" Switching to {nxt}..." if nxt else ""))
+                        break
+                    wait = min(max(q["delay"] or 20, 5), 60) + 2
+                    minute_waits += 1
+                    log(f"Gemini's free tier allows only a few requests per minute. Waiting {wait}s...")
+                    time.sleep(wait)
                     continue
-                if e.code in (400, 404) and ("not found" in detail.lower() or "not supported" in detail.lower()):
-                    tried.append(m)
+                if e.code in (500, 502, 503, 504):
+                    if attempt >= 3:
+                        log(f"{m} is overloaded right now." + (f" Switching to {nxt}..." if nxt else ""))
+                        break
+                    log(f"Gemini is busy ({e.code}), retrying in {10 * attempt}s...")
+                    time.sleep(10 * attempt)
+                    continue
+                if e.code in (400, 404) and ("not found" in low or "not supported" in low or "is not available" in low):
+                    unavailable.append(m)
                     break
-                if e.code in (400, 401, 403) and "key" in detail.lower():
-                    raise RuntimeError("Gemini rejected the API key. Double-check it in settings.")
-                raise RuntimeError(f"Gemini error {e.code}: {detail}")
+                if e.code in (400, 401, 403) and ("api key" in low or "api_key" in low or "permission" in low):
+                    raise RuntimeError("Gemini rejected the API key. Double-check it in Settings "
+                                       "(it should start with 'AIza').")
+                raise RuntimeError(f"Gemini error {e.code}: {detail[:300]}")
             except (KeyError, IndexError):
                 raise RuntimeError(f"Gemini returned no text (it may have blocked the content). Model: {m}")
             except Exception as e:  # timeouts, dropped connections, flaky Wi-Fi
                 if not _is_network_blip(e) and not isinstance(e, (OSError, ValueError)):
                     raise
-                if attempt >= 4:
+                if attempt >= 5:
                     raise RuntimeError("Couldn't reach Gemini: the connection kept timing out. Check your internet, "
                                        "then press Try again (finished parts are saved).")
-                wait = 10 * (attempt + 1)
+                wait = 10 * attempt
                 log(f"Gemini didn't answer in time ({str(e)[:60]}). Retrying in {wait}s...")
                 time.sleep(wait)
                 continue
-        else:
-            raise RuntimeError("Gemini free-tier limit reached for now. Try again later or use fewer clips.")
-    raise RuntimeError(f"None of these Gemini models are available to your key: {tried}")
+    if limited:
+        raise RuntimeError(
+            "Your free Gemini key has used up today's free requests on every free model. Google resets them at "
+            "midnight Pacific time (2 AM in Texas). Your progress is saved: press Try again after that. "
+            "Or switch to Ollama in Settings, or ask Claude for a clip plan and paste it in."
+            + (f" Google said: {google_said}" if google_said else ""))
+    raise RuntimeError(f"None of these Gemini models are available to your key: {', '.join(unavailable)}. "
+                       "Check the model name in Settings > Advanced.")
 
 
 def ollama_generate(prompt: str, model: str, host: str) -> str:
