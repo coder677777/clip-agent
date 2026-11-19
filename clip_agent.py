@@ -907,7 +907,7 @@ LAYOUTS = {
     "stack": {"part_y": 268, "title_y": 390, "hook_y": 700, "cap_y": 960, "end_y": 1180},
 }
 
-NOISE = re.compile(r"^\[.*\]$|^\(.*\)$|^>>$|^-$")
+NOISE = re.compile(r"^\[.*\]$|^\(.*\)$|^>>$|^-$|^[\[\]_]+$")  # also YouTube's censored "[ __ ]"
 
 
 def caption_groups(words, max_words=3, max_chars=13, gap=0.6):
