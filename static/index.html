@@ -109,6 +109,11 @@ main { max-width: 1080px; margin: 0 auto; padding: 0 28px 140px; }
 .plist { display: grid; gap: 2px; }
 .prow { display: grid; grid-template-columns: 148px 1fr auto; gap: 18px; align-items: center; padding: 10px; border-radius: 14px; text-decoration: none; }
 .prow:hover { background: var(--panel); }
+.prow-w { position: relative; }
+.prow-w .prow { padding-right: 64px; }
+.pdel { position: absolute; right: 12px; top: 50%; transform: translateY(-50%); width: 38px; height: 38px; border-radius: 10px; border: 1px solid transparent; background: transparent; color: var(--muted); cursor: pointer; display: grid; place-items: center; }
+.pdel:hover, .pdel:focus-visible { color: #FF6B81; border-color: var(--line); background: var(--panel-2); }
+.prow-w .chev { display: none; }
 .thumb { position: relative; aspect-ratio: 16/9; border-radius: 10px; overflow: hidden; background: var(--panel-2); }
 .thumb img { width: 100%; height: 100%; object-fit: cover; display: block; }
 .thumb .dur { position: absolute; right: 6px; bottom: 6px; background: rgba(0,0,0,.78); font-size: 12px; font-weight: 600; padding: 1px 6px; border-radius: 5px; }
@@ -498,11 +503,18 @@ async function loadProjects() {
   let list = []; try { list = await api("/api/projects"); } catch {}
   const el = $("#plist"); if (!el) return;
   if (!list.length) { el.innerHTML = `<div class="empty">Videos you clip show up here.</div>`; return; }
-  el.innerHTML = list.map(p => `<a class="prow" href="#/p/${encodeURIComponent(p.id)}">
+  el.innerHTML = list.map(p => `<div class="prow-w"><a class="prow" href="#/p/${encodeURIComponent(p.id)}">
       <div class="thumb">${p.thumb ? `<img src="${esc(p.thumb)}" alt="" loading="lazy">` : ""}${p.duration ? `<span class="dur">${hms(p.duration)}</span>` : ""}</div>
       <div><div class="t">${esc(p.title)}</div><div class="s">${p.clips ? `${p.clips} clips found${p.made ? `, ${p.made} made` : ""}` : "No clip plan yet"}</div></div>
       <span class="chev muted" aria-hidden="true"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 6l6 6-6 6"/></svg></span>
-    </a>`).join("");
+    </a><button class="pdel" type="button" data-del="${esc(p.id)}" title="Delete" aria-label="Delete ${esc(p.title)}"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M4 7h16M10 11v6M14 11v6M6 7l1 13h10l1-13M9 7V4h6v3"/></svg></button></div>`).join("");
+  el.querySelectorAll("[data-del]").forEach(b => b.onclick = async () => {
+    const row = b.closest(".prow-w"), title = row.querySelector(".t").textContent;
+    if (!confirm(`Delete "${title}" and every clip made from it?`)) return;
+    try { await api("/api/projects/" + encodeURIComponent(b.dataset.del), { method: "DELETE" }); row.remove(); toast("Video deleted");
+      if (!el.querySelector(".prow-w")) el.innerHTML = `<div class="empty">Videos you clip show up here.</div>`; }
+    catch (e) { toast(e.message); }
+  });
 }
 
 /* ------------------------------------------------------------ project */
@@ -609,7 +621,7 @@ function clipHTML(p, c) {
         <button class="btn small" type="button" data-copy="${c.n}">Copy caption</button></div>` : ""}
       <div class="cacts">
         ${yt ? `<button class="btn small" type="button" data-preview="${c.n}">Preview the moment</button>` : ""}
-        ${r ? `<a class="btn small primary" href="${esc(r.url)}" download="${esc(r.name)}">Download clip</a>` : ""}
+        ${r ? dlButtons(p, c) : ""}
       </div>
     </div></article>`;
 }
@@ -630,7 +642,32 @@ function bindProject(p, dur) {
       el.classList.add("flash"); setTimeout(() => el.classList.remove("flash"), 1300); };
   });
 }
+function dlButtons(p, c) {
+  return `<a class="btn small primary" data-dl="${c.n}" href="/api/download/${encodeURIComponent(p.id)}/${c.n}">Download clip</a>
+    <button class="btn small ghost danger" type="button" data-delfile="${c.n}">Delete made clip</button>`;
+}
 function bindClips(p) {
+  document.querySelectorAll("[data-dl]").forEach(a => a.onclick = async e => {
+    e.preventDefault();
+    const n = +a.dataset.dl;
+    try {
+      const fresh = await api("/api/projects/" + encodeURIComponent(p.id));
+      if (!fresh.rendered[n]) { toast("That clip's file is gone. Tick it and make it again."); S.project.rendered = fresh.rendered;
+        const w = $(`#clip-${n} .pwrap`); if (w) w.innerHTML = phoneMock(fresh, fresh.clips.find(x => x.n == n)); a.nextElementSibling?.remove(); a.remove(); return; }
+    } catch {}
+    location.href = a.href;
+  });
+  document.querySelectorAll("[data-delfile]").forEach(b => b.onclick = async () => {
+    const n = +b.dataset.delfile;
+    if (!confirm(`Delete the made video for clip ${n}? The clip stays in the list so you can make it again.`)) return;
+    try {
+      await api(`/api/projects/${encodeURIComponent(p.id)}/clips/${n}/file`, { method: "DELETE" });
+      delete S.project.rendered[n];
+      const c = S.project.clips.find(x => x.n == n);
+      $(`#clip-${n} .pwrap`).innerHTML = phoneMock(S.project, c);
+      $(`#clip-${n} [data-dl]`)?.remove(); b.remove(); toast("Made clip deleted");
+    } catch (e) { toast(e.message); }
+  });
   document.querySelectorAll(".check").forEach(cb => cb.onchange = () => setSel(+cb.dataset.n, cb.checked));
   document.querySelectorAll("[data-copy]").forEach(b => b.onclick = async () => {
     const c = p.clips.find(x => x.n == b.dataset.copy);
@@ -702,7 +739,7 @@ const LAYOUT_ICONS = {
 const COLORS = [["#FFE500", "Yellow"], ["#3DFF6E", "Green"], ["#22D3EE", "Cyan"], ["#FF3B3B", "Red"], ["#FF9F1C", "Orange"]];
 
 function renderMakebar(status) {
-  const bar = $("#makebar"); if (!S.project) return;
+  const bar = $("#makebar"); if (!S.project || !location.hash.startsWith("#/p/")) return;
   const busy = !!S.renderJob;
   const k = S.sel.size;
   bar.classList.remove("hidden");
@@ -778,7 +815,7 @@ async function refreshRendered(pid) {
         S.project.rendered = p.rendered;
         const wrap = $(`#clip-${c.n} .pwrap`); if (wrap) wrap.innerHTML = phoneMock(p, c);
         const acts = $(`#clip-${c.n} .cacts`);
-        if (acts && !acts.querySelector("[download]")) acts.insertAdjacentHTML("beforeend", `<a class="btn small primary" href="${esc(p.rendered[c.n].url)}" download="${esc(p.rendered[c.n].name)}">Download clip</a>`);
+        if (acts) { acts.querySelectorAll("[data-dl], [data-delfile]").forEach(x => x.remove()); acts.insertAdjacentHTML("beforeend", dlButtons(p, c)); bindClips(S.project); }
         setSel(c.n, false);
       }
     }

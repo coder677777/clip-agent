@@ -238,7 +238,14 @@ def project(pid: str):
 @app.delete("/api/projects/{pid}")
 def delete_project(pid: str):
     import shutil
-    shutil.rmtree(project_dir(pid), ignore_errors=True)
+    d = project_dir(pid)
+    shutil.rmtree(d, ignore_errors=True)
+    if d.exists():  # Windows keeps files that are open (a playing video); try once more
+        import time
+        time.sleep(1.5)
+        shutil.rmtree(d, ignore_errors=True)
+    if d.exists():
+        raise HTTPException(409, "Some files are still in use. Close any clip that's playing, then delete again.")
     return {"ok": True}
 
 
@@ -344,13 +351,20 @@ async def render(req: Request):
         for c in plan["clips"]:
             if c["n"] not in only:
                 continue
-            # replace an older render of the same clip
-            for old in (workdir / "clips").glob(f"{c['n']:02d}_*.mp4") if (workdir / "clips").exists() else []:
-                old.unlink(missing_ok=True)
+            olds = list((workdir / "clips").glob(f"{c['n']:02d}_*.mp4")) if (workdir / "clips").exists() else []
             try:
-                made.append(ca.render_clip(c, plan, workdir, words_all, **opts).name)
+                new = ca.render_clip(c, plan, workdir, words_all, **opts)
+                made.append(new.name)
             except Exception as e:
                 ca.log(f"[{c['n']}] FAILED: {_clean(e)[:300]}")
+                continue
+            # the new render replaces older ones of the same clip (only after it worked)
+            for old in olds:
+                if old.resolve() != new.resolve():
+                    try:
+                        old.unlink()
+                    except OSError:
+                        pass
         if not made:
             raise RuntimeError("None of the clips could be made. See the details above.")
         return {"project": pid, "made": made}
@@ -379,11 +393,42 @@ def jobs():
 
 @app.get("/media/{pid}/{path:path}")
 def media(pid: str, path: str):
-    d = project_dir(pid)
+    d = project_dir(pid).resolve()
     f = (d / path).resolve()
-    if d.resolve() not in f.parents or not f.is_file():
+    if not _inside(f, d) or not f.is_file():
         raise HTTPException(404)
     return FileResponse(f)
+
+
+def _inside(f: Path, d: Path) -> bool:
+    try:
+        return os.path.commonpath([os.path.normcase(str(f)), os.path.normcase(str(d))]) == os.path.normcase(str(d))
+    except ValueError:
+        return False
+
+
+def clip_file(pid: str, n: int) -> Path | None:
+    cdir = project_dir(pid) / "clips"
+    found = sorted(cdir.glob(f"{n:02d}_*.mp4"), key=lambda p: p.stat().st_mtime) if cdir.is_dir() else []
+    return found[-1] if found else None
+
+
+@app.get("/api/download/{pid}/{n}")
+def download(pid: str, n: int):
+    f = clip_file(pid, n)
+    if not f:
+        raise HTTPException(404, "That clip's file isn't there anymore. Make it again.")
+    return FileResponse(f, media_type="video/mp4", filename=f.name)
+
+
+@app.delete("/api/projects/{pid}/clips/{n}/file")
+def delete_clip_file(pid: str, n: int):
+    for f in (project_dir(pid) / "clips").glob(f"{n:02d}_*.mp4"):
+        try:
+            f.unlink()
+        except OSError:
+            raise HTTPException(409, "Windows is still using that clip. Pause the video and try again.")
+    return {"ok": True}
 
 
 @app.post("/api/open-folder")
