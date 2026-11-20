@@ -259,7 +259,10 @@ async def find(req: Request):
     source = (b.get("source") or "").strip()
     if not source:
         raise HTTPException(400, "Paste a YouTube link or add a video file.")
-    n, length, notes = int(b.get("clips", 10)), int(b.get("length", 40)), b.get("notes", "")
+    raw_n = b.get("clips", 10)
+    n = 0 if str(raw_n).lower() in ("all", "0", "") else max(1, min(100, int(raw_n)))
+    length = max(10, min(180, int(b.get("length", 40))))
+    notes = b.get("notes", "")
 
     def run(job):
         cfg = ca.load_config()
@@ -293,10 +296,29 @@ async def paste(req: Request):
             workdir = ca.OUT_ROOT / f"{ca.slugify(meta['title'])}_{meta['id']}"
             workdir.mkdir(parents=True, exist_ok=True)
             words = []
-        ca.build_plan(meta, words, workdir, clips, n_clips=len(clips), target_len=40)
+        target = (data.get("settings") or {}).get("target_length") if isinstance(data, dict) else None
+        ca.build_plan(meta, words, workdir, clips, n_clips=len(clips), target_len=target)
         return {"project": workdir.name}
 
     return {"job": new_job("find", run)}
+
+
+@app.post("/api/projects/{pid}/clips/{n}")
+async def edit_clip_text(pid: str, n: int, req: Request):
+    """Save edited on-screen text for one clip."""
+    b = await req.json()
+    pp = project_dir(pid) / "clip_plan.json"
+    if not pp.exists():
+        raise HTTPException(404, "This project has no clip plan yet.")
+    plan = json.loads(pp.read_text(encoding="utf-8"))
+    for c in plan["clips"]:
+        if c.get("n") == n:
+            for k in ("meme_text", "headline", "hook_text", "title_top"):
+                if isinstance(b.get(k), str):
+                    c[k] = b[k].strip()[:300]
+            pp.write_text(json.dumps(plan, indent=2, ensure_ascii=False), encoding="utf-8")
+            return c
+    raise HTTPException(404, f"Clip {n} isn't in this plan.")
 
 
 @app.post("/api/render")
@@ -309,7 +331,10 @@ async def render(req: Request):
         raise HTTPException(400, "Pick at least one clip.")
     opts = dict(layout=b.get("layout", "blur") if b.get("layout") in ca.LAYOUTS else "blur",
                 highlight=b.get("color", "#FFE500"), use_whisper=bool(b.get("whisper", True)),
-                tighten=bool(b.get("tighten", True)))
+                tighten=bool(b.get("tighten", True)),
+                style=b.get("style") if b.get("style") in ("meme", "reaction", "bold") else "bold",
+                captions=None if b.get("captions") is None else bool(b.get("captions")),
+                facecam=b.get("facecam") if b.get("facecam") in ("auto", "tl", "tr", "bl", "br") else "auto")
 
     def run(job):
         plan, workdir = ca.load_plan(d / "clip_plan.json")

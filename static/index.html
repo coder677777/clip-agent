@@ -7,6 +7,8 @@
 <link rel="icon" href="/static/icon.png">
 <style>
 @font-face { font-family: "Poppins"; font-weight: 800; src: url(/fonts/Poppins-ExtraBold.ttf) format("truetype"); font-display: swap; }
+@font-face { font-family: "TikTok Sans"; font-weight: 500; src: url(/fonts/TikTokSans-Medium.ttf) format("truetype"); font-display: swap; }
+@font-face { font-family: "TikTok Sans"; font-weight: 600; src: url(/fonts/TikTokSans-SemiBold.ttf) format("truetype"); font-display: swap; }
 @font-face { font-family: "Poppins"; font-weight: 900; src: url(/fonts/Poppins-Black.ttf) format("truetype"); font-display: swap; }
 
 :root {
@@ -151,6 +153,15 @@ main { max-width: 1080px; margin: 0 auto; padding: 0 28px 140px; }
 .phone .p-hook span { background: var(--hl); color: #000; font-family: var(--display); font-weight: 900; font-size: 11px; padding: 2px 6px; box-decoration-break: clone; -webkit-box-decoration-break: clone; line-height: 1.6; }
 .phone .p-cap { position: absolute; left: 4%; right: 4%; top: 72%; transform: translateY(-50%); text-align: center; font-family: var(--display); font-weight: 900; font-size: 14px; color: #fff; text-shadow: 0 0 3px #000, 0 0 3px #000, 0 2px 2px #000; }
 .phone .p-cap b { color: var(--hl); font-weight: 900; }
+.phone.meme { background: #000; }
+.phone .sq { position: absolute; left: 0; right: 0; top: 21.875%; height: 56.25%; background-size: cover; background-position: center; }
+.phone .p-meme { position: absolute; left: 10%; right: 10%; bottom: 24.5%; text-align: center; font-family: "TikTok Sans", var(--display); font-weight: 500; font-size: 9.6px; line-height: 1.22; color: #fff; text-shadow: 0 1px 2px rgba(0,0,0,.9), 0 0 1px #000; }
+.phone .half { position: absolute; left: 0; right: 0; background-size: cover; background-position: center; }
+.phone .half.t { top: 0; height: 33.33%; background-position: 20% 20%; }
+.phone .half.b { top: 33.33%; bottom: 0; }
+.phone .p-head { position: absolute; left: 4.6%; right: 4.6%; top: 31.25%; text-align: center; }
+.phone .p-head span { display: inline-block; background: #fff; color: #000; font-family: "TikTok Sans", var(--display); font-weight: 600; font-size: 9.2px; line-height: 1.2; padding: 3px 5px; border-radius: 4px; }
+.phone .p-cap.small { font-family: "TikTok Sans", var(--display); font-weight: 600; font-size: 11px; }
 .phone .state { position: absolute; inset: 0; background: rgba(15,16,19,.72); display: grid; place-items: center; text-align: center; font-weight: 600; font-size: 14px; padding: 10px; }
 .spin { width: 26px; height: 26px; border-radius: 50%; border: 3px solid rgba(255,255,255,.2); border-top-color: var(--hl); animation: spin .8s linear infinite; margin: 0 auto 8px; }
 @keyframes spin { to { transform: rotate(360deg); } }
@@ -176,6 +187,29 @@ dl.details dd { margin: 0; }
 .post p { margin: 0; flex: 1; }
 .post .tags { color: #8FB8FF; }
 .cacts { margin: 14px 0 0 34px; display: flex; flex-wrap: wrap; gap: 8px; }
+
+/* style picker */
+.stylebox { margin-top: 26px; }
+.styles { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 12px; }
+.styles button { display: flex; gap: 14px; align-items: center; text-align: left; background: var(--panel); border: 1px solid var(--line); border-radius: 14px; padding: 12px 14px; cursor: pointer; color: var(--text); font: inherit; }
+.styles button:hover { border-color: #59606E; }
+.styles button[aria-pressed="true"] { border-color: var(--hl); background: var(--panel-2); }
+.styles svg { flex: none; }
+.styles b { display: block; font-family: var(--display); font-weight: 800; font-size: 15.5px; }
+.styles small { color: var(--muted); font-size: 13px; line-height: 1.35; display: block; margin-top: 2px; }
+.styleopts { display: flex; flex-wrap: wrap; gap: 12px 22px; align-items: center; margin-top: 14px; min-height: 30px; }
+.styleopts .lbl { color: var(--muted); font-size: 14px; margin-right: 6px; }
+.styleopts select { background: var(--bg); color: var(--text); border: 1px solid var(--line); border-radius: 9px; padding: 5px 8px; font: inherit; font-size: 14px; }
+textarea.ostext { width: 100%; resize: vertical; min-height: 44px; background: var(--bg); color: var(--text); border: 1px solid var(--line); border-radius: 10px; padding: 7px 10px; font: inherit; font-size: 14.5px; line-height: 1.4; }
+textarea.ostext:focus { outline: none; border-color: var(--hl); }
+.numin { display: inline-flex; align-items: center; gap: 4px; background: var(--bg); border: 1px solid var(--line); border-radius: 999px; padding: 2px 10px 2px 4px; }
+.numin input { width: 46px; background: transparent; border: 0; color: var(--text); font: inherit; font-weight: 600; text-align: right; padding: 4px 0; -moz-appearance: textfield; }
+.numin input::-webkit-inner-spin-button, .numin input::-webkit-outer-spin-button { -webkit-appearance: none; margin: 0; }
+.numin input:focus { outline: none; }
+.numin:focus-within { border-color: var(--hl); }
+.numin span { color: var(--muted); font-size: 14px; }
+.numin.off { opacity: .45; }
+@media (max-width: 760px) { .styles { grid-template-columns: 1fr; } }
 
 /* bottom make bar */
 .makebar { position: fixed; left: 0; right: 0; bottom: 0; z-index: 30; background: rgba(22,24,29,.96); backdrop-filter: blur(10px); border-top: 1px solid var(--line); }
@@ -277,7 +311,8 @@ function toast(msg) { const t = document.createElement("div"); t.className = "to
 
 const S = { state: null, project: null, sel: new Set(), job: null, renderJob: null, file: null,
   opts: { clips: store.get("clips", 10), length: store.get("length", 40) },
-  make: { layout: store.get("layout", "blur"), color: store.get("color", "#FFE500"),
+  make: { style: store.get("style", "meme"), facecam: store.get("facecam", "auto"),
+          layout: store.get("layout", "blur"), color: store.get("color", "#FFE500"),
           whisper: store.get("whisper", true), tighten: store.get("tighten", true) } };
 
 /* ------------------------------------------------------------ router */
@@ -352,8 +387,12 @@ function finderHTML() {
       <button class="btn primary go" id="findBtn" type="button">Find clips</button>
     </div>
     <div class="opts">
-      <div class="opt"><span class="lbl">Clips</span>${seg("clips", [5, 10, 15, 20], S.opts.clips, v => v)}</div>
-      <div class="opt"><span class="lbl">Length</span>${seg("length", [20, 30, 45, 60], S.opts.length, v => v + "s")}</div>
+      <div class="opt"><label class="lbl" for="nClips">Clips</label>
+        <span class="numin ${S.opts.clips === "all" ? "off" : ""}"><input id="nClips" type="number" min="1" max="100" inputmode="numeric" value="${S.opts.clips === "all" ? store.get("clipsN", 10) : S.opts.clips}" ${S.opts.clips === "all" ? "disabled" : ""}></span>
+        <label class="toggle" title="Every moment that scores 30 or more out of 50"><input type="checkbox" id="allClips" ${S.opts.clips === "all" ? "checked" : ""}>As many as it finds</label></div>
+      <div class="opt"><label class="lbl" for="nLen">Average length</label>
+        <span class="numin"><input id="nLen" type="number" min="10" max="180" inputmode="numeric" value="${S.opts.length}"><span>s</span></span>
+        ${seg("length", [20, 30, 45, 60], S.opts.length, v => v + "s")}</div>
       <div class="opt"><label for="notes">Look for</label><input class="notes" id="notes" placeholder="funny moments, money stories, heated debates…"></div>
     </div>
     <div class="subactions">
@@ -365,7 +404,10 @@ function finderHTML() {
 }
 function bindFinder() {
   const f = $("#finder"); if (!f) return;
-  f.querySelectorAll("[data-clips]").forEach(b => b.onclick = () => { S.opts.clips = +b.dataset.clips; store.set("clips", S.opts.clips); rerenderFinder(); });
+  const clampN = (v, lo, hi, d) => { v = Math.round(+v); return Number.isFinite(v) && v > 0 ? Math.min(hi, Math.max(lo, v)) : d; };
+  $("#nClips").onchange = e => { S.opts.clips = clampN(e.target.value, 1, 100, 10); store.set("clips", S.opts.clips); store.set("clipsN", S.opts.clips); e.target.value = S.opts.clips; };
+  $("#allClips").onchange = e => { S.opts.clips = e.target.checked ? "all" : store.get("clipsN", 10); store.set("clips", S.opts.clips); rerenderFinder(); };
+  $("#nLen").onchange = e => { S.opts.length = clampN(e.target.value, 10, 180, 40); store.set("length", S.opts.length); rerenderFinder(); };
   f.querySelectorAll("[data-length]").forEach(b => b.onclick = () => { S.opts.length = +b.dataset.length; store.set("length", S.opts.length); rerenderFinder(); });
   $("#findBtn").onclick = startFind;
   $("#link")?.addEventListener("keydown", e => { if (e.key === "Enter") startFind(); });
@@ -392,6 +434,8 @@ async function startFind() {
       const up = await api("/api/upload?name=" + encodeURIComponent(S.file.name), { method: "POST", body: S.file });
       source = up.path; S.file = null;
     }
+    const nIn = $("#nClips"); if (nIn && S.opts.clips !== "all") S.opts.clips = Math.min(100, Math.max(1, Math.round(+nIn.value) || 10));
+    const lIn = $("#nLen"); if (lIn) S.opts.length = Math.min(180, Math.max(10, Math.round(+lIn.value) || 40));
     S.lastFind = { source, clips: S.opts.clips, length: S.opts.length, notes: $("#notes")?.value || "" };
     const r = await api("/api/find", { method: "POST", body: JSON.stringify(S.lastFind) });
     watchFind(r.job);
@@ -484,6 +528,7 @@ async function showProject(pid) {
         </div></div>
     </div>
     ${timelineHTML(p, dur)}
+    ${styleBoxHTML()}
     <div class="cliplist" id="cliplist">${p.clips.map(c => clipHTML(p, c)).join("")}</div>`;
   bindProject(p, dur);
   renderMakebar();
@@ -510,16 +555,27 @@ function phoneMock(p, c) {
   const r = p.rendered[c.n];
   if (r) return `<div class="phone"><video src="${esc(r.url)}?v=${Math.round(r.mtime)}" controls preload="metadata" playsinline></video></div>`;
   const img = p.thumb ? `url('${p.thumb.replace(/'/g, "%27")}')` : "none";
+  const st = S.make.style, capsOn = captionsOn();
   const hook = c.series && c.series.part > 1 && c.part2_recap ? c.part2_recap : c.hook_text;
   const capWords = (c.start_quote || "").replace(/[.,!?;:"]/g, "").split(/\s+/).filter(Boolean).slice(0, 3).map(w => w.toUpperCase());
   const cap = capWords.map((w, i) => i === 1 ? `<b>${esc(w)}</b>` : esc(w)).join(" ");
+  if (st === "meme") return `<div class="phone meme" aria-hidden="true">
+    <div class="sq" style="background-image:${img}"></div>
+    <div class="p-meme">${esc(clipText(c, "meme"))}</div>
+    ${capsOn ? `<div class="p-cap small" style="top:86%">${cap}</div>` : ""}
+    <div class="state hidden"></div></div>`;
+  if (st === "reaction") return `<div class="phone" aria-hidden="true">
+    <div class="half t" style="background-image:${img}"></div>
+    <div class="half b" style="background-image:${img}"></div>
+    <div class="p-head"><span>${esc(clipText(c, "reaction"))}</span></div>
+    ${capsOn ? `<div class="p-cap small" style="top:82%">${cap}</div>` : ""}
+    <div class="state hidden"></div></div>`;
   return `<div class="phone" aria-hidden="true">
     <div class="bgimg" style="background-image:${img}"></div>
     <div class="mid" style="background-image:${img}"></div>
     ${c.series ? `<div class="p-part">PART ${c.series.part}</div>` : ""}
-    <div class="p-title"><span>${esc(c.title_top)}</span></div>
     ${hook ? `<div class="p-hook"><span>${esc(String(hook).length < 40 ? String(hook).toUpperCase() : hook)}</span></div>` : ""}
-    <div class="p-cap">${cap}</div>
+    ${capsOn ? `<div class="p-cap">${cap}</div>` : ""}
     <div class="state hidden"></div>
   </div>`;
 }
@@ -542,7 +598,8 @@ function clipHTML(p, c) {
         ${c.cold_open ? `<span class="tag" title="Opens with: “${esc(c.cold_open.quote)}”">teaser opening</span>` : ""}
       </div>
       <dl class="details">
-        ${c.hook_text ? `<dt>Hook</dt><dd>${esc(c.hook_text)}</dd>` : ""}
+        <dt><label for="ost-${c.n}">On-screen text</label></dt>
+        <dd><textarea class="ostext" id="ost-${c.n}" data-n="${c.n}" rows="2" spellcheck="true">${esc(c[TEXT_KEY[S.make.style]] || (S.make.style === "bold" ? "" : baseText(c, S.make.style)))}</textarea></dd>
         ${c.part2_recap ? `<dt>Part 2 recap</dt><dd>${esc(c.part2_recap)}</dd>` : ""}
         ${c.start_quote ? `<dt>Opens with</dt><dd>“${esc(c.start_quote)}…”</dd>` : ""}
         ${c.end_quote ? `<dt>Ends with</dt><dd>“…${esc(c.end_quote)}”${c.ending ? ` <span class="muted">(${esc(c.ending)})</span>` : ""}</dd>` : ""}
@@ -561,13 +618,8 @@ function bindProject(p, dur) {
   $("#openFolder")?.addEventListener("click", () => api("/api/open-folder", { method: "POST", body: JSON.stringify({ project: p.id }) }));
   $("#delProject").onclick = async () => { if (!confirm("Delete this video's clip plan and any clips you made from it?")) return;
     await api("/api/projects/" + encodeURIComponent(p.id), { method: "DELETE" }); location.hash = "#/"; };
-  document.querySelectorAll(".check").forEach(cb => cb.onchange = () => setSel(+cb.dataset.n, cb.checked));
-  document.querySelectorAll("[data-copy]").forEach(b => b.onclick = async () => {
-    const c = p.clips.find(x => x.n == b.dataset.copy);
-    const text = [c.post_caption, (c.hashtags || []).join(" ")].filter(Boolean).join(" ");
-    try { await navigator.clipboard.writeText(text); toast("Caption copied"); } catch { prompt("Copy the caption:", text); }
-  });
-  document.querySelectorAll("[data-preview]").forEach(b => b.onclick = () => openPreview(p, p.clips.find(x => x.n == b.dataset.preview)));
+  bindClips(p);
+  bindStyles(p);
   const tip = $("#tip");
   document.querySelectorAll(".mark").forEach(m => {
     const c = p.clips.find(x => x.n == m.dataset.n);
@@ -578,6 +630,63 @@ function bindProject(p, dur) {
       el.classList.add("flash"); setTimeout(() => el.classList.remove("flash"), 1300); };
   });
 }
+function bindClips(p) {
+  document.querySelectorAll(".check").forEach(cb => cb.onchange = () => setSel(+cb.dataset.n, cb.checked));
+  document.querySelectorAll("[data-copy]").forEach(b => b.onclick = async () => {
+    const c = p.clips.find(x => x.n == b.dataset.copy);
+    const text = [c.post_caption, (c.hashtags || []).join(" ")].filter(Boolean).join(" ");
+    try { await navigator.clipboard.writeText(text); toast("Caption copied"); } catch { prompt("Copy the caption:", text); }
+  });
+  document.querySelectorAll("[data-preview]").forEach(b => b.onclick = () => openPreview(p, p.clips.find(x => x.n == b.dataset.preview)));
+  document.querySelectorAll("textarea.ostext").forEach(t => {
+    const c = p.clips.find(x => x.n == t.dataset.n);
+    t.oninput = () => { c[TEXT_KEY[S.make.style]] = t.value; if (!p.rendered[c.n]) { const w = $(`#clip-${c.n} .pwrap`); w.innerHTML = phoneMock(p, c); } };
+    t.onchange = async () => {
+      try { await api(`/api/projects/${encodeURIComponent(p.id)}/clips/${c.n}`, { method: "POST", body: JSON.stringify({ [TEXT_KEY[S.make.style]]: t.value }) }); toast("Text saved"); }
+      catch (e) { toast(e.message); }
+    };
+  });
+}
+
+/* ------------------------------------------------------------ styles */
+const TEXT_KEY = { meme: "meme_text", reaction: "headline", bold: "hook_text" };
+const STYLES = {
+  meme: ["Meme caption", "Relatable “when…” line over the clip",
+    `<svg width="30" height="48" viewBox="0 0 30 48"><rect x="1" y="1" width="28" height="46" rx="4" fill="#000" stroke="#4A505D"/><rect x="1" y="11" width="28" height="27" fill="#8F95A3"/><rect x="5" y="28" width="20" height="2.4" rx="1" fill="#fff"/><rect x="7" y="32" width="16" height="2.4" rx="1" fill="#fff"/></svg>`],
+  reaction: ["Reaction split", "Face cam on top, gameplay below, white headline",
+    `<svg width="30" height="48" viewBox="0 0 30 48"><rect x="1" y="1" width="28" height="15.5" rx="4" fill="#C9CDD6"/><rect x="1" y="16.5" width="28" height="30.5" rx="4" fill="#6B7180"/><rect x="3" y="14" width="24" height="7" rx="2" fill="#fff"/><rect x="6" y="16.6" width="18" height="1.8" fill="#15161A"/></svg>`],
+  bold: ["Bold captions", "Big word-by-word captions and a hook",
+    `<svg width="30" height="48" viewBox="0 0 30 48"><rect x="1" y="1" width="28" height="46" rx="4" fill="#4A505D"/><rect x="1" y="15" width="28" height="17" fill="#C9CDD6"/><rect x="6" y="35" width="18" height="4" rx="1" fill="#FFE500"/></svg>`] };
+function captionsOn() { return store.get("caps_" + S.make.style, S.make.style === "bold"); }
+function baseText(c, st) { return st === "meme" ? (c.meme_text || (c.title_top || "").toLowerCase()) : (c.headline || c.title_top || ""); }
+function clipText(c, st) { const t = baseText(c, st).trim(), s = c.series;
+  return s ? `${t} (${st === "meme" ? "pt" : "Part"} ${s.part})` : t; }
+function styleBoxHTML() {
+  const st = S.make.style;
+  return `<section class="stylebox" aria-label="Video style">
+    <div class="styles" role="group" aria-label="Video style">${Object.entries(STYLES).map(([k, [name, desc, svg]]) =>
+      `<button type="button" data-style="${k}" aria-pressed="${st === k}">${svg}<span><b>${name}</b><small>${desc}</small></span></button>`).join("")}</div>
+    <div class="styleopts">
+      ${st === "bold" ? `<div class="layouts" role="group" aria-label="Layout">${Object.entries(LAYOUT_ICONS).map(([key, [label, svg]]) =>
+        `<button type="button" title="${label}" aria-label="${label}" aria-pressed="${S.make.layout === key}" data-layout="${key}">${svg}</button>`).join("")}</div>
+      <div class="swatches" role="group" aria-label="Caption highlight color">${COLORS.map(([hex, name]) =>
+        `<button type="button" title="${name}" aria-label="${name} captions" aria-pressed="${S.make.color === hex}" data-color="${hex}" style="background:${hex}"></button>`).join("")}</div>` : ""}
+      ${st === "reaction" ? `<label><span class="lbl">Face cam</span><select id="facecam">${[["auto", "Find it for me"], ["tl", "Top left"], ["tr", "Top right"], ["bl", "Bottom left"], ["br", "Bottom right"]].map(([v, l]) =>
+        `<option value="${v}" ${S.make.facecam === v ? "selected" : ""}>${l}</option>`).join("")}</select></label>` : ""}
+      <label class="toggle"><input type="checkbox" id="tCaps" ${captionsOn() ? "checked" : ""}>Word-by-word captions</label>
+    </div></section>`;
+}
+function bindStyles(p) {
+  const box = $(".stylebox"); if (!box) return;
+  const redraw = () => { box.outerHTML = styleBoxHTML(); $("#cliplist").innerHTML = p.clips.map(c => clipHTML(p, c)).join(""); bindClips(p); bindStyles(p); renderMakebar(); };
+  box.querySelectorAll("[data-style]").forEach(b => b.onclick = () => { S.make.style = b.dataset.style; store.set("style", S.make.style); redraw(); });
+  box.querySelectorAll("[data-layout]").forEach(b => b.onclick = () => { S.make.layout = b.dataset.layout; store.set("layout", S.make.layout); redraw(); });
+  box.querySelectorAll("[data-color]").forEach(b => b.onclick = () => { S.make.color = b.dataset.color; store.set("color", S.make.color);
+    document.documentElement.style.setProperty("--hl", S.make.color); redraw(); });
+  $("#facecam")?.addEventListener("change", e => { S.make.facecam = e.target.value; store.set("facecam", S.make.facecam); });
+  $("#tCaps").onchange = e => { store.set("caps_" + S.make.style, e.target.checked); redraw(); };
+}
+
 function setSel(n, on) {
   on ? S.sel.add(n) : S.sel.delete(n);
   $("#clip-" + n)?.classList.toggle("sel", on);
@@ -600,18 +709,13 @@ function renderMakebar(status) {
   bar.innerHTML = `<div class="in">
     <span class="count">${k} selected</span>
     <button class="linkish" id="selAll" type="button">${k === S.project.clips.length ? "Select none" : "Select all"}</button>
-    <div class="layouts" role="group" aria-label="Layout">${Object.entries(LAYOUT_ICONS).map(([key, [label, svg]]) =>
-      `<button type="button" title="${label}" aria-label="${label}" aria-pressed="${S.make.layout === key}" data-layout="${key}">${svg}</button>`).join("")}</div>
-    <div class="swatches" role="group" aria-label="Caption highlight color">${COLORS.map(([hex, name]) =>
-      `<button type="button" title="${name}" aria-label="${name} captions" aria-pressed="${S.make.color === hex}" data-color="${hex}" style="background:${hex}"></button>`).join("")}</div>
+    <span class="muted">${STYLES[S.make.style][0]}</span>
     <label class="toggle" title="Re-listens to each clip so caption timing is exact. Slower."><input type="checkbox" id="tWhisper" ${S.make.whisper ? "checked" : ""}>Exact captions</label>
     <label class="toggle" title="Removes pauses longer than about 3/4 of a second"><input type="checkbox" id="tTighten" ${S.make.tighten ? "checked" : ""}>Cut pauses</label>
     <button class="btn primary go" id="makeBtn" type="button" ${!k || busy ? "disabled" : ""}>${busy ? "Making clips…" : `Make ${k} clip${k === 1 ? "" : "s"}`}</button>
     ${status ? `<div class="status" aria-live="polite">${status}</div>` : ""}
   </div>`;
   $("#selAll").onclick = () => { const all = k !== S.project.clips.length; S.project.clips.forEach(c => setSel(c.n, all)); };
-  bar.querySelectorAll("[data-layout]").forEach(b => b.onclick = () => { S.make.layout = b.dataset.layout; store.set("layout", S.make.layout); renderMakebar(status); });
-  bar.querySelectorAll("[data-color]").forEach(b => b.onclick = () => { S.make.color = b.dataset.color; store.set("color", S.make.color); renderMakebar(status); });
   $("#tWhisper").onchange = e => { S.make.whisper = e.target.checked; store.set("whisper", S.make.whisper); };
   $("#tTighten").onchange = e => { S.make.tighten = e.target.checked; store.set("tighten", S.make.tighten); };
   $("#makeBtn").onclick = startRender;
@@ -621,7 +725,8 @@ async function startRender() {
   const clips = [...S.sel].sort((a, b) => a - b);
   try {
     const r = await api("/api/render", { method: "POST", body: JSON.stringify({ project: S.project.id, clips,
-      layout: S.make.layout, color: S.make.color, whisper: S.make.whisper, tighten: S.make.tighten }) });
+      layout: S.make.layout, color: S.make.color, whisper: S.make.whisper, tighten: S.make.tighten,
+      style: S.make.style, captions: captionsOn(), facecam: S.make.facecam }) });
     watchRender(r.job, S.project.id);
   } catch (e) { toast(e.message); }
 }

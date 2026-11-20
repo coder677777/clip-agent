@@ -9,7 +9,7 @@ Clip Agent - a free, local YouTube-to-Shorts clipper.
      band, hook text, word-by-word captions and Part labels.
 
 Command line:
-  python clip_agent.py find   <youtube-url-or-file> [--clips 10] [--length 40]
+  python clip_agent.py find   <youtube-url-or-file> [--clips 10|all] [--length 40]
   python clip_agent.py render <path/to/clip_plan.json> [--only 1,3,5]
   python clip_agent.py run    <youtube-url-or-file>      (find + render)
 Or launch the app:  python app.py
@@ -469,11 +469,18 @@ RULES FOR EACH CLIP
 - If the single best line is NOT at the start, give a cold_open: a 1-3 second line from inside the clip
   that will be flashed at the very beginning as a teaser before the clip plays from its start.
 - The clip must make sense to a stranger and contain its payoff before it ends.
-- Length: the shortest length that delivers the full idea. Target is given below; funny moments can be
-  15-30s, stories up to 60s. Only go longer for a story that clearly holds attention.
+- Length: the user sets a TARGET length (given below). Keep every clip within about 20% of it, teaser
+  included. If a moment needs more time, use only its strongest part (setup can be covered by the teaser)
+  or split it into Part 1 / Part 2. Never pad a short moment.
 - End right after the punchline/payoff (or on a line that loops back into the opening). Never trail off.
-- title_top: 3-8 words shown at the top of the screen the whole clip. Curiosity, no spoilers, different
-  from the spoken first line. e.g. "He didn't expect this answer", "The question that ended the interview".
+- title_top: a short 3-8 word name for the clip (only shown inside the app, not on the video).
+- meme_text: on-screen text for the MEME CAPTION style. All lowercase, casual internet voice, a relatable
+  "when..." / "me when..." / "pov:" line that matches the person's reaction in the clip, 8-20 words.
+  Slang is good (lwk, fr, ngl, bro), quotes for dialogue, at most 1 emoji, no hashtags, never explains the joke.
+  Example: when shawty is on her 10th "do you hate me" of the day so i lwk start to wonder if i genuinely do
+- headline: on-screen text for the REACTION SPLIT style. One clickbait storytelling sentence that names the
+  streamer/person, 10-22 words, 1-3 words in ALL CAPS for emphasis, ends with 1-2 emojis (😭💔😳🤣💀).
+  Example: No way THIS happened to Kai Cenat on his FINAL mission before BEATING GTA 6 before IShowSpeed did 😭💔
 - hook_text: 2-6 punchy words flashed in the first ~2.5 seconds, e.g. "WAIT FOR IT", "HE WAS SERIOUS",
   "$2M MISTAKE". No emojis.
 - PART 1 / PART 2: when a great story needs more than ~70 seconds or has a natural cliffhanger, split it.
@@ -491,7 +498,7 @@ SCHEMA = """Return ONLY JSON in this exact shape:
   "start_quote": "first 5-8 words exactly", "end_quote": "last 5-8 words exactly",
   "cold_open": null or {"start": "HH:MM:SS", "quote": "the 1-3 second teaser line exactly"},
   "type": "hot take|story|funny|emotional|reveal|conflict|advice|other",
-  "title_top": "...", "hook_text": "...",
+  "title_top": "short name", "hook_text": "...", "meme_text": "...", "headline": "...",
   "series": null or {"id": "s1", "part": 1, "of": 2},
   "part2_recap": null or "...",
   "ending": "loop|hard cut|cliffhanger",
@@ -769,7 +776,8 @@ def find_clips(meta: dict, words: list[dict], workdir: Path, n_clips: int = 10, 
     duration = meta.get("duration") or (words[-1]["e"] if words else 0)
     window = 3600.0 if provider == "gemini" else 1200.0
     n_windows = max(1, math.ceil(duration / window))
-    per_window = max(3, math.ceil(n_clips * 1.6 / n_windows))
+    all_mode = not n_clips
+    per_window = max(6, round(20 * window / 3600)) if all_mode else max(3, math.ceil(n_clips * 1.6 / n_windows))
     candidates = []
     import hashlib
     run_key = hashlib.sha1(json.dumps([provider, n_clips, target_len, extra_instructions, window]).encode()).hexdigest()[:10]
@@ -795,8 +803,10 @@ def find_clips(meta: dict, words: list[dict], workdir: Path, n_clips: int = 10, 
         prompt = (PLAYBOOK + "\n\n" + SCHEMA +
                   f"\n\nVIDEO: \"{meta.get('title')}\" by {meta.get('channel') or 'unknown'}, total length {hms(duration)}."
                   f"\nThis is the transcript section {hms(a)} to {hms(b)}. Timestamps in [brackets] mark line starts."
-                  f"\nFind up to {per_window} of the BEST clip candidates in this section (fewer if the section is weak)."
-                  f"\nTarget clip length: about {target_len} seconds."
+                  + (f"\nFind EVERY moment in this section worth clipping (anything that would score 30+/50), up to {per_window}."
+                     if all_mode else
+                     f"\nFind up to {per_window} of the BEST clip candidates in this section (fewer if the section is weak).")
+                  + f"\nTarget clip length: about {target_len} seconds."
                   + (f"\nExtra instructions from the user: {extra_instructions}" if extra_instructions else "")
                   + "\n\nTRANSCRIPT:\n" + "\n".join(lines))
         if provider == "gemini":
@@ -821,9 +831,64 @@ def find_clips(meta: dict, words: list[dict], workdir: Path, n_clips: int = 10, 
     return build_plan(meta, words, workdir, candidates, n_clips, target_len)
 
 
+def _phrase_starts(words) -> list[int]:
+    """Indexes of words that begin a sentence/phrase (after . ? ! or a pause)."""
+    out = [0] if words else []
+    for i in range(1, len(words)):
+        prev = words[i - 1]
+        if prev["w"].rstrip()[-1:] in ".?!" or words[i]["s"] - prev["e"] >= 0.35:
+            out.append(i)
+    return out
+
+
+def _snap_start(words, starts, t, direction, reach=6.0):
+    """Nearest phrase start to time t, looking forward (direction=1) or backward (-1) up to `reach` seconds."""
+    if not words:
+        return t
+    cands = [words[i]["s"] for i in starts]
+    if direction > 0:
+        near = [x for x in cands if t <= x <= t + reach]
+        if near:
+            return near[0] - 0.1
+        later = [w["s"] for w in words if w["s"] >= t]
+        return (later[0] - 0.05) if later else t
+    near = [x for x in cands if t - reach <= x <= t]
+    if near:
+        return near[-1] - 0.1
+    earlier = [w["s"] for w in words if w["s"] <= t]
+    return (earlier[-1] - 0.05) if earlier else t
+
+
+def _teaser_len(c) -> float:
+    co = c.get("cold_open")
+    return (co["end"] - co["start"]) if co else 0.0
+
+
+def fit_length(c: dict, words, starts, target: float, hi: float = 1.3, lo: float = 0.65, aim_hi=1.1, aim_lo=0.85):
+    """Pull a clip toward the target length (teaser included). Keeps the ending (the payoff); moves the start."""
+    tz = _teaser_len(c)
+    total = c["end"] - c["start"] + tz
+    if total > target * hi:
+        new = _snap_start(words, starts, c["end"] - (target * aim_hi - tz), +1)
+        if c["end"] - new >= 6:
+            c["start"] = round(max(c["start"], new), 2)
+    elif total < target * lo:
+        new = _snap_start(words, starts, c["end"] - (target * aim_lo - tz), -1)
+        c["start"] = round(max(0.0, min(c["start"], new)), 2)
+    else:
+        return c
+    first = [w["w"] for w in words if w["s"] >= c["start"]][:7]
+    if first:
+        c["start_quote"] = " ".join(first)
+    c["length"] = round(c["end"] - c["start"] + tz, 1)
+    return c
+
+
 def build_plan(meta, words, workdir, raw_clips, n_clips=10, target_len=40) -> dict:
     duration = meta.get("duration") or 0
     refined = [r for r in (refine_clip(dict(c), words, duration) for c in raw_clips) if r]
+    if not n_clips:  # "as many as it finds": keep everything good enough
+        refined = [c for c in refined if c["score"] >= 30]
     # rank: series are ranked by their best part and kept together
     groups = {}
     for c in refined:
@@ -836,12 +901,28 @@ def build_plan(meta, words, workdir, raw_clips, n_clips=10, target_len=40) -> di
         if any(_overlap(c, k) > 0.3 for c in g for k in chosen):
             continue
         chosen.extend(g)
-        if len(chosen) >= n_clips:
+        if n_clips and len(chosen) >= n_clips:
             break
     for i, c in enumerate(chosen, 1):
         c["n"] = i
+        c["length"] = round(c["end"] - c["start"] + _teaser_len(c), 1)
+    if target_len and chosen:
+        starts = _phrase_starts(words)
+        for c in chosen:
+            fit_length(c, words, starts, float(target_len))
+        avg = sum(c["length"] for c in chosen) / len(chosen)
+        if avg > target_len * 1.08:  # still long on average: trim the long ones a bit harder
+            for c in chosen:
+                if c["length"] > target_len:
+                    fit_length(c, words, starts, float(target_len), hi=1.0, aim_hi=1.0)
+        elif avg < target_len * 0.92:
+            for c in chosen:
+                if c["length"] < target_len:
+                    fit_length(c, words, starts, float(target_len), lo=1.0, aim_lo=1.0)
+        avg = sum(c["length"] for c in chosen) / len(chosen)
+        log(f"Average clip length: {avg:.0f}s (you asked for {target_len}s).")
     plan = {"video": {k: meta.get(k) for k in ("id", "title", "channel", "duration", "url", "source", "is_url")},
-            "settings": {"target_length": target_len}, "clips": chosen}
+            "settings": {"target_length": target_len, "count": n_clips or "all"}, "clips": chosen}
     save_plan(plan, workdir)
     log(f"Found {len(chosen)} clips. Plan saved to {workdir / 'clip_plan.md'}")
     return plan
@@ -854,8 +935,9 @@ def save_plan(plan: dict, workdir: Path):
 
 def plan_markdown(plan: dict) -> str:
     v = plan["video"]
+    avg = sum(c.get("length", 0) for c in plan["clips"]) / max(1, len(plan["clips"]))
     out = [f"# Clip plan: {v.get('title')}", "",
-           f"{len(plan['clips'])} clips from a {hms(v.get('duration') or 0)} video.", ""]
+           f"{len(plan['clips'])} clips from a {hms(v.get('duration') or 0)} video, average {avg:.0f}s each.", ""]
     for c in plan["clips"]:
         s = c.get("series")
         part = f"PART {s['part']}/{s.get('of', 2)}" if s else "Single"
@@ -863,7 +945,9 @@ def plan_markdown(plan: dict) -> str:
         out += [f"## {c['n']}. {c.get('title_top', '')}",
                 f"- **Time:** {hms(c['start'])} -> {hms(c['end'])} ({c['length']}s) | **{c.get('type', '')}** | "
                 f"**Score {c['score']}/50** | {part}" + (f" | [watch]({yt})" if yt else ""),
-                f"- **Hook text (0-2.5s):** {c.get('hook_text', '')}"]
+                f"- **Meme caption text:** {c.get('meme_text', '')}",
+                f"- **Reaction headline:** {c.get('headline', '')}",
+                f"- **Hook text (bold style, 0-2.5s):** {c.get('hook_text', '')}"]
         if c.get("cold_open"):
             out.append(f"- **Cold open teaser:** \"{c['cold_open'].get('quote', '')}\" ({hms(c['cold_open']['start'])})")
         if c.get("part2_recap"):
@@ -932,10 +1016,18 @@ def caption_groups(words, max_words=3, max_chars=13, gap=0.6):
     return groups
 
 
-def build_ass(clip: dict, words_out: list[dict], total: float, layout: str, highlight: str,
-              show_title=True) -> str:
-    L = LAYOUTS[layout]
+# Where things sit (centre points on the 1080x1920 canvas) for each style
+STYLE_POS = {
+    "meme": {"cap_y": 1650, "end_y": 960},
+    "reaction": {"cap_y": 1580, "end_y": 1300},
+}
+
+
+def build_ass(clip: dict, words_out: list[dict], total: float, highlight: str, pos: dict,
+              captions: bool = True, hook: bool = True, part_pill: bool = True,
+              cap_font: str = "Poppins Black", cap_size: int = 100) -> str:
     hl = ass_color(highlight)
+    outline = 9 if cap_size >= 90 else 5
     head = f"""[Script Info]
 ScriptType: v4.00+
 PlayResX: 1080
@@ -945,8 +1037,7 @@ ScaledBorderAndShadow: yes
 
 [V4+ Styles]
 Format: Name, Fontname, Fontsize, PrimaryColour, SecondaryColour, OutlineColour, BackColour, Bold, Italic, Underline, StrikeOut, ScaleX, ScaleY, Spacing, Angle, BorderStyle, Outline, Shadow, Alignment, MarginL, MarginR, MarginV, Encoding
-Style: Caption,Poppins Black,100,&H00FFFFFF,&H00FFFFFF,&H00000000,&H90000000,0,0,0,0,100,100,1,0,1,9,4,5,50,50,0,1
-Style: Title,Poppins ExtraBold,70,&H00000000,&H00000000,&H00FFFFFF,&H00000000,0,0,0,0,100,100,0,0,3,20,0,5,90,90,0,1
+Style: Caption,{cap_font},{cap_size},&H00FFFFFF,&H00FFFFFF,&H00000000,&H90000000,0,0,0,0,100,100,1,0,1,{outline},4,5,50,50,0,1
 Style: Hook,Poppins Black,86,&H00000000,&H00000000,{ass_color('#FFE500')},&H00000000,0,0,0,0,100,100,1,0,3,18,0,5,80,80,0,1
 Style: Part,Poppins Black,50,&H00FFFFFF,&H00FFFFFF,{ass_color('#FF2D55')},&H00000000,0,0,0,0,100,100,2,0,3,12,0,5,80,80,0,1
 Style: End,Poppins Black,78,&H00FFFFFF,&H00FFFFFF,{ass_color('#FF2D55')},&H00000000,0,0,0,0,100,100,1,0,3,22,0,5,80,80,0,1
@@ -956,21 +1047,21 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
 """
     ev = []
     series = clip.get("series") or None
-    if show_title and clip.get("title_top"):
-        ev.append(f"Dialogue: 2,{ass_time(0)},{ass_time(total)},Title,,0,0,0,,{{\\pos(540,{L['title_y']})}}{ass_escape(clip['title_top'])}")
-    if series:
+    if series and part_pill and pos.get("part_y"):
         label = f"PART {series.get('part', 1)}"
-        ev.append(f"Dialogue: 3,{ass_time(0)},{ass_time(total)},Part,,0,0,0,,{{\\pos(540,{L['part_y']})}}{label}")
-    hook = clip.get("part2_recap") if series and series.get("part", 1) > 1 and clip.get("part2_recap") else clip.get("hook_text")
-    if hook:
+        ev.append(f"Dialogue: 3,{ass_time(0)},{ass_time(total)},Part,,0,0,0,,{{\\pos(540,{pos['part_y']})}}{label}")
+    hk = clip.get("part2_recap") if series and series.get("part", 1) > 1 and clip.get("part2_recap") else clip.get("hook_text")
+    if hook and hk and pos.get("hook_y"):
         hook_end = min(2.6 if not clip.get("part2_recap") else 3.2, total)
         ev.append(f"Dialogue: 4,{ass_time(0.05)},{ass_time(hook_end)},Hook,,0,0,0,,"
-                  f"{{\\pos(540,{L['hook_y']})\\fscx70\\fscy70\\t(0,120,\\fscx100\\fscy100)\\fad(0,180)}}"
-                  f"{ass_escape(hook.upper() if len(hook) < 40 else hook)}")
+                  f"{{\\pos(540,{pos['hook_y']})\\fscx70\\fscy70\\t(0,120,\\fscx100\\fscy100)\\fad(0,180)}}"
+                  f"{ass_escape(hk.upper() if len(hk) < 40 else hk)}")
     if series and series.get("part", 1) < series.get("of", 2):
         st = max(0.0, total - 2.2)
         ev.append(f"Dialogue: 5,{ass_time(st)},{ass_time(total)},End,,0,0,0,,"
-                  f"{{\\pos(540,{L['end_y']})\\fscx60\\fscy60\\t(0,150,\\fscx100\\fscy100)}}PART {series.get('part', 1) + 1} ON MY PAGE")
+                  f"{{\\pos(540,{pos['end_y']})\\fscx60\\fscy60\\t(0,150,\\fscx100\\fscy100)}}PART {series.get('part', 1) + 1} ON MY PAGE")
+    if not captions:
+        return head + "\n".join(ev) + "\n"
     # word-by-word captions
     groups = caption_groups(words_out)
     for gi, g in enumerate(groups):
@@ -979,10 +1070,10 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
             g_end = groups[gi + 1][0]["s"]
         g_end = min(g_end + 0.08, total)
         for k, w in enumerate(g):
-            s = w["s"] if k else g[0]["s"]
+            s0 = w["s"] if k else g[0]["s"]
             e = g[k + 1]["s"] if k + 1 < len(g) else g_end
-            if e <= s:
-                e = s + 0.05
+            if e <= s0:
+                e = s0 + 0.05
             parts = []
             for j, x in enumerate(g):
                 if j == k:
@@ -990,9 +1081,79 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
                 else:
                     parts.append(ass_escape(x["t"]))
             pop = "\\fscx88\\fscy88\\t(0,90,\\fscx100\\fscy100)" if k == 0 else ""
-            ev.append(f"Dialogue: 1,{ass_time(s)},{ass_time(e)},Caption,,0,0,0,,"
-                      f"{{\\pos(540,{L['cap_y']}){pop}}}" + " ".join(parts))
+            ev.append(f"Dialogue: 1,{ass_time(s0)},{ass_time(e)},Caption,,0,0,0,,"
+                      f"{{\\pos(540,{pos['cap_y']}){pop}}}" + " ".join(parts))
     return head + "\n".join(ev) + "\n"
+
+
+def media_size(path: Path) -> tuple[int, int]:
+    r = subprocess.run([ffmpeg_exe(), "-hide_banner", "-i", str(path)], capture_output=True, text=True,
+                       encoding="utf-8", errors="replace", creationflags=NO_WINDOW)
+    m = re.search(r"Video:.*?(\d{2,5})x(\d{2,5})", r.stderr)
+    return (int(m.group(1)), int(m.group(2))) if m else (1920, 1080)
+
+
+TOP_ASPECT = 1080 / 640   # face-cam panel in Reaction split
+BOT_ASPECT = 1080 / 1280  # gameplay panel
+
+
+def detect_facecam(video: Path, W: int, H: int, mode: str = "auto"):
+    """Crop box (x, y, w, h) for the streamer's face cam. mode: auto, tl, tr, bl, br.
+    Returns (box, note); box is None when no separate face cam was found (IRL footage)."""
+    def fit(cx, cy, cw):
+        cw = min(cw, W, H * TOP_ASPECT)
+        ch = cw / TOP_ASPECT
+        x = min(max(0, cx - cw / 2), W - cw)
+        y = min(max(0, cy - ch / 2), H - ch)
+        return int(x) // 2 * 2, int(y) // 2 * 2, int(cw) // 2 * 2, int(ch) // 2 * 2
+    if mode in ("tl", "tr", "bl", "br"):
+        cw = W * 0.34
+        ch = cw / TOP_ASPECT
+        x = 0 if mode[1] == "l" else W - cw
+        y = 0 if mode[0] == "t" else H - ch
+        return fit(x + cw / 2, y + ch / 2, cw), "face cam corner chosen in settings"
+    try:
+        import cv2
+    except Exception:
+        return None, "face detection isn't installed"
+    cap = cv2.VideoCapture(str(video))
+    frames = int(cap.get(cv2.CAP_PROP_FRAME_COUNT) or 0)
+    model = HERE / "models" / "face_detection_yunet_2023mar.onnx"
+    yunet = None
+    if hasattr(cv2, "FaceDetectorYN") and model.exists():
+        yunet = cv2.FaceDetectorYN.create(str(model), "", (320, 320), 0.75, 0.3, 50)
+    else:
+        haar = getattr(getattr(cv2, "data", None), "haarcascades", "") + "haarcascade_frontalface_default.xml"
+        casc = cv2.CascadeClassifier(haar)
+        if casc.empty():
+            cap.release()
+            return None, "face detection model is missing"
+    faces = []
+    for k in range(8):
+        cap.set(cv2.CAP_PROP_POS_FRAMES, max(0, int(frames * (k + 0.5) / 8)))
+        ok, fr = cap.read()
+        if not ok:
+            continue
+        scale = 640 / fr.shape[1]
+        small = cv2.resize(fr, None, fx=scale, fy=scale)
+        if yunet is not None:
+            yunet.setInputSize((small.shape[1], small.shape[0]))
+            _, found = yunet.detect(small)
+            found = [] if found is None else [tuple(f[:4]) for f in found]
+        else:
+            g = cv2.cvtColor(small, cv2.COLOR_BGR2GRAY)
+            found = [tuple(f) for f in casc.detectMultiScale(g, scaleFactor=1.1, minNeighbors=6, minSize=(18, 18))]
+        if len(found):
+            x, y, w, h = max(found, key=lambda f: f[2] * f[3])
+            faces.append((x / scale, y / scale, w / scale, h / scale))
+    cap.release()
+    if len(faces) < 2:
+        return None, "no face cam found"
+    faces.sort(key=lambda f: f[2])
+    x, y, w, h = faces[len(faces) // 2]
+    if w > 0.2 * W:  # the face fills the frame: this is a camera-only video, not gameplay + face cam
+        return None, "this looks like camera-only footage (no gameplay)"
+    return fit(x + w / 2, y + h * 1.05, w * 4.2), "face cam found automatically"
 
 
 def layout_filter(layout: str, crop_x: float = 0.5) -> str:
@@ -1039,15 +1200,33 @@ def fetch_range(meta: dict, start: float, end: float, out_base: Path) -> Path:
     return out
 
 
+def _overlay_render(*a, **k):
+    try:
+        import overlay_text
+    except ImportError:
+        raise RuntimeError("The text styles need an update to finish installing. Close Clip Agent and open it again.")
+    return overlay_text.render(*a, **k)
+
+
+def clip_text(clip: dict, style: str) -> str:
+    """On-screen text for the meme / reaction styles, with a part marker for series."""
+    s = clip.get("series") or None
+    if style == "meme":
+        t = (clip.get("meme_text") or (clip.get("title_top") or "").lower()).strip()
+        return f"{t} (pt {s['part']})" if s else t
+    t = (clip.get("headline") or clip.get("title_top") or "").strip()
+    return f"{t} (Part {s['part']})" if s else t
+
+
 def render_clip(clip: dict, plan: dict, workdir: Path, words_all: list[dict] | None = None,
                 layout: str = "blur", highlight: str = "#FFE500", use_whisper: bool = True,
-                tighten: bool = True, crop_x: float = 0.5) -> Path:
+                tighten: bool = True, crop_x: float = 0.5, style: str = "bold",
+                captions: bool | None = None, facecam: str = "auto") -> Path:
     meta = plan["video"]
     work = workdir / "work"
     work.mkdir(exist_ok=True)
     fonts_local = work / "fonts"
-    if not fonts_local.exists():
-        shutil.copytree(FONTS_DIR, fonts_local)
+    shutil.copytree(FONTS_DIR, fonts_local, dirs_exist_ok=True)
     clips_dir = workdir / "clips"
     clips_dir.mkdir(exist_ok=True)
     n = clip.get("n", 1)
@@ -1099,8 +1278,43 @@ def render_clip(clip: dict, plan: dict, workdir: Path, words_all: list[dict] | N
         t += b - a
     total = t
 
+    # ---- style: what goes on screen and where
+    if captions is None:
+        captions = style == "bold"
+    text_png, text_y, vfilter = None, 0, None
+    if style == "reaction":
+        W, H = media_size(raw)
+        box, note = detect_facecam(raw, W, H, facecam)
+        if box is None:
+            log(f"[{n}] Reaction split needs a face cam over gameplay ({note}). Using Meme caption style instead.")
+            style = "meme"
+        else:
+            log(f"[{n}] Reaction split: {note}.")
+            cx, cy, cw, ch = box
+            gw = min(W, int(H * BOT_ASPECT)) // 2 * 2
+            gh = min(H, int(gw / BOT_ASPECT)) // 2 * 2
+            gx, gy = (W - gw) // 2 // 2 * 2, (H - gh) // 2 // 2 * 2
+            vfilter = (f"[vc]split=2[fa][ga];[fa]crop={cw}:{ch}:{cx}:{cy},scale=1080:640,setsar=1[top];"
+                       f"[ga]crop={gw}:{gh}:{gx}:{gy},scale=1080:1280,setsar=1[bot];[top][bot]vstack=inputs=2[vl]")
+            text = clip_text(clip, "reaction")
+            if text:
+                text_png, tw, th = _overlay_render(text, "headline", work / f"text_{n:02d}.png", 980)
+                text_y = 600
+    if style == "meme":
+        vfilter = ("[vc]scale=1080:1080:force_original_aspect_ratio=increase,crop=1080:1080,setsar=1,"
+                   "pad=1080:1920:0:420:black[vl]")
+        text = clip_text(clip, "meme")
+        if text:
+            text_png, tw, th = _overlay_render(text, "meme", work / f"text_{n:02d}.png", 860)
+            text_y = max(440, 1450 - th)
+    if style == "bold":
+        pos = dict(LAYOUTS[layout])
+        ass = build_ass(clip, words_out, total, highlight, pos, captions=captions)
+    else:
+        ass = build_ass(clip, words_out, total, highlight, STYLE_POS[style], captions=captions, hook=False,
+                        part_pill=False, cap_font="TikTok Sans 36pt SemiBold", cap_size=66)
     ass_path = work / f"clip_{n:02d}.ass"
-    ass_path.write_text(build_ass(clip, words_out, total, layout, highlight), encoding="utf-8")
+    ass_path.write_text(ass, encoding="utf-8")
 
     fc = []
     for i, (a, b) in enumerate(pieces):
@@ -1111,12 +1325,15 @@ def render_clip(clip: dict, plan: dict, workdir: Path, words_all: list[dict] | N
         fc.append(f"[0:a]atrim=start={a:.3f}:end={b:.3f},asetpts=PTS-STARTPTS,"
                   f"afade=t=in:d=0.02,afade=t=out:st={max(0.0, d - 0.03):.3f}:d=0.03[a{i}]")
     fc.append("".join(f"[v{i}][a{i}]" for i in range(len(pieces))) + f"concat=n={len(pieces)}:v=1:a=1[vc][ac]")
-    fc.append(layout_filter(layout, crop_x))
-    fc.append(f"[vl]subtitles={ass_path.name}:fontsdir=fonts,fps=30,format=yuv420p[vout]")
+    fc.append(vfilter or layout_filter(layout, crop_x))
+    if text_png:
+        fc.append(f"[vl][1:v]overlay=x=(W-w)/2:y={text_y}:eof_action=repeat[vt]")
+    fc.append(f"[{'vt' if text_png else 'vl'}]subtitles={ass_path.name}:fontsdir=fonts,fps=30,format=yuv420p[vout]")
     fc.append("[ac]loudnorm=I=-14:TP=-1.5:LRA=11,aresample=48000[aout]")
     out = clips_dir / f"{n:02d}_{slugify(clip.get('title_top') or 'clip', 36)}.mp4"
     log(f"[{n}] Rendering {total:.0f}s vertical clip ...")
-    run_ffmpeg(["-i", raw.name, "-filter_complex", ";".join(fc), "-map", "[vout]", "-map", "[aout]",
+    inputs = ["-i", raw.name] + (["-i", text_png.name] if text_png else [])
+    run_ffmpeg(inputs + ["-filter_complex", ";".join(fc), "-map", "[vout]", "-map", "[aout]",
                 "-c:v", "libx264", "-preset", "veryfast", "-crf", "20", "-c:a", "aac", "-b:a", "160k",
                 "-movflags", "+faststart", str(out.resolve())], cwd=work)
     log(f"[{n}] Done -> {out.name}")
@@ -1149,7 +1366,7 @@ def main():
     for name in ("find", "run"):
         p = sub.add_parser(name)
         p.add_argument("source", help="YouTube link or path to a video file")
-        p.add_argument("--clips", type=int, default=10)
+        p.add_argument("--clips", default="10", help="how many clips, or 'all' for every good moment")
         p.add_argument("--length", type=int, default=40, help="target clip length in seconds")
         p.add_argument("--ai", default=None, choices=["gemini", "ollama"])
         p.add_argument("--lang", default="en")
@@ -1162,19 +1379,27 @@ def main():
         q.add_argument("--highlight", default="#FFE500")
         q.add_argument("--no-whisper", action="store_true")
         q.add_argument("--no-tighten", action="store_true")
+        q.add_argument("--style", default="bold", choices=["meme", "reaction", "bold"])
+        q.add_argument("--captions", default=None, choices=["on", "off"])
+        q.add_argument("--facecam", default="auto", choices=["auto", "tl", "tr", "bl", "br"])
     a = ap.parse_args()
     cfg = load_config()
     if a.cmd in ("find", "run"):
         meta, words, workdir = get_transcript(a.source, a.lang)
-        plan = find_clips(meta, words, workdir, a.clips, a.length, a.ai or cfg.get("provider", "gemini"), cfg, a.notes)
+        n_clips = 0 if a.clips.lower() == "all" else int(a.clips)
+        plan = find_clips(meta, words, workdir, n_clips, a.length, a.ai or cfg.get("provider", "gemini"), cfg, a.notes)
         print(plan_markdown(plan))
         if a.cmd == "run":
             render_plan(workdir / "clip_plan.json", layout=a.layout, highlight=a.highlight,
-                        use_whisper=not a.no_whisper, tighten=not a.no_tighten)
+                        use_whisper=not a.no_whisper, tighten=not a.no_tighten,
+                        style=a.style, facecam=a.facecam,
+                        captions=None if a.captions is None else a.captions == "on")
     else:
         only = {int(x) for x in a.only.split(",") if x.strip()} or None
         render_plan(a.plan, only, layout=a.layout, highlight=a.highlight,
-                    use_whisper=not a.no_whisper, tighten=not a.no_tighten)
+                    use_whisper=not a.no_whisper, tighten=not a.no_tighten,
+                        style=a.style, facecam=a.facecam,
+                        captions=None if a.captions is None else a.captions == "on")
 
 
 if __name__ == "__main__":

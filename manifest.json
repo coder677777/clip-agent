@@ -1,18 +1,25 @@
 {
-  "version": "2.5.0",
+  "version": "2.6.0",
   "files": {
-    "clip_agent.py": "77d40b035eb26a9c184e19429c50ea3affafea8794757cb2d541cbdafffb2c13",
-    "server.py": "ffdc4ca4608d79d2689208959b343f8bf04929e1fd92018cd986aa4ac453e1bf",
+    "clip_agent.py": "5026f0256ea7f23b4d3ea269dfb3a33333be499abb9783223d8a707f13b589b8",
+    "server.py": "4a0faf4be3c52a0e436d4a6802c0fca13902d323ec957821849a198681dba3b3",
     "updater.py": "f47979706aa693d6372098c9c2b923063540cafdffe5998c0e3f7deb65e4d5c7",
     "launch.pyw": "cd79a1c7436946ad2eb3b10e94b94f4986b8e64f407afa87e96212c5b7fcfe70",
-    "requirements.txt": "4baab51b6686385e5ccfa847375935ca0d866877f4a79702786606810d233635",
+    "requirements.txt": "5eb97d926a8dee1280fcbec7a86a57946d0062f4f7044c163f3c31ce9584d1d4",
     "install.ps1": "e5b0e95930fc51ba8e1bed530e041436c2e07e3b5b5096f8fc5a0244ca7abddf",
-    "README.md": "b9fa431f8c05dc4f40f9ee64b70347e4a7bfa703fc92f0a1233825b07e47ebd9",
+    "README.md": "12d51e2d0ae35253e2a578ebf7135ed0c84bfa1ccda06e0dbc889dc92e473c3b",
     "icon.ico": "be9ff83428facf76bb0c149b95b47174d05065703a04b0cd203c6997a2b77f17",
-    "static/index.html": "02ed136e5656a2cc18869427b25de47bf7a3e613e6a0501efc01e8197a25c48c",
+    "static/index.html": "b6537fa619cae345fbc9624b975c1f1e3ef1e95391f4d0a729917941379c2a5e",
     "static/icon.png": "799cbb3ad11f249f1c9d663cec3c2d716e3a88edb923e641ea5a341114c08857",
     "fonts/Poppins-Black.ttf": "d82aaaf98a9283f9a8edd24e51173337d8eaf09e25cd3d98831f8ec8461748a1",
     "fonts/Poppins-ExtraBold.ttf": "f2ab17c1a63a0ecc12c2461848fc8a469395e3cd2d641803e889c643d9f958e1",
-    "fonts/OFL-Poppins.txt": "6be04893d770899a015649c7aa3b582f871b272f8747a92b78b17c3e5c8b2573"
+    "fonts/OFL-Poppins.txt": "6be04893d770899a015649c7aa3b582f871b272f8747a92b78b17c3e5c8b2573",
+    "overlay_text.py": "0fbf5f60ec45ef988baee518c16acdbf81226e55b4d97ed7e589a0098a49206f",
+    "fonts/TikTokSans-Medium.ttf": "23bd3a6f83a7e3095ee829097d26df22f19b5256f3508447f5bbad99fc475078",
+    "fonts/TikTokSans-SemiBold.ttf": "4cb4f7a6e9a75cd3a63e6024150634378772c1dcdee14b4ce5015a922d9158f8",
+    "fonts/TikTokSans-Bold.ttf": "b7aaf64c1e76a5c04fafb2b566e7e0953c86cdef8f5e0cb7705e403ab4cb914a",
+    "fonts/OFL-TikTokSans.txt": "99e743f68f5eac487004c73aaca69c5d80d91ddb7b75c04bdf5f39331d9b7158",
+    "models/face_detection_yunet_2023mar.onnx": "8f2383e4dd3cfbb4553ea8718107fc0423210dc964f9f4280604804ed2552fa4",
+    "models/LICENSE-yunet.txt": "c83b8120c50ccbd4c4f96edf53141bdd566ebb8f8e9227e415326aa1b1aba958"
   }
 }
