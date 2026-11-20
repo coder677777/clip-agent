@@ -1,7 +1,7 @@
 {
-  "version": "2.4.1",
+  "version": "2.5.0",
   "files": {
-    "clip_agent.py": "6d1703f8a220b833ae9e253ba4cb360762e6fac07bd8b3602b8219ea388979dd",
+    "clip_agent.py": "77d40b035eb26a9c184e19429c50ea3affafea8794757cb2d541cbdafffb2c13",
     "server.py": "ffdc4ca4608d79d2689208959b343f8bf04929e1fd92018cd986aa4ac453e1bf",
     "updater.py": "f47979706aa693d6372098c9c2b923063540cafdffe5998c0e3f7deb65e4d5c7",
     "launch.pyw": "cd79a1c7436946ad2eb3b10e94b94f4986b8e64f407afa87e96212c5b7fcfe70",

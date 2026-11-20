@@ -1105,7 +1105,9 @@ def render_clip(clip: dict, plan: dict, workdir: Path, words_all: list[dict] | N
     fc = []
     for i, (a, b) in enumerate(pieces):
         d = b - a
-        fc.append(f"[0:v]trim=start={a:.3f}:end={b:.3f},setpts=PTS-STARTPTS[v{i}]")
+        # after a teaser (cold open), flash white as the clip "starts over"
+        flash = ",fade=t=in:st=0:d=0.3:color=white" if co and i == 1 else ""
+        fc.append(f"[0:v]trim=start={a:.3f}:end={b:.3f},setpts=PTS-STARTPTS{flash}[v{i}]")
         fc.append(f"[0:a]atrim=start={a:.3f}:end={b:.3f},asetpts=PTS-STARTPTS,"
                   f"afade=t=in:d=0.02,afade=t=out:st={max(0.0, d - 0.03):.3f}:d=0.03[a{i}]")
     fc.append("".join(f"[v{i}][a{i}]" for i in range(len(pieces))) + f"concat=n={len(pieces)}:v=1:a=1[vc][ac]")
