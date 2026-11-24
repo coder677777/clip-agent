@@ -421,6 +421,42 @@ def download(pid: str, n: int):
     return FileResponse(f, media_type="video/mp4", filename=f.name)
 
 
+@app.get("/api/download-all/{pid}")
+def download_all(pid: str):
+    """Every made clip of this video in one .zip (stored, not compressed: mp4s don't shrink and it stays fast)."""
+    import zipfile
+    from starlette.background import BackgroundTask
+    d = project_dir(pid)
+    files = [d / "clips" / r["name"] for _, r in sorted(rendered_files(d).items(), key=lambda kv: int(kv[0]))]
+    files = [f for f in files if f.is_file()]
+    if not files:
+        raise HTTPException(404, "No clips made yet. Make some clips first.")
+    title = pid
+    try:
+        title = json.loads((d / "clip_plan.json").read_text(encoding="utf-8"))["video"].get("title") or pid
+    except Exception:
+        pass
+    work = d / "work"
+    work.mkdir(exist_ok=True)
+    for old in work.glob("_all_*.zip"):  # leftovers from earlier downloads
+        try:
+            old.unlink()
+        except OSError:
+            pass
+    zpath = work / f"_all_{uuid.uuid4().hex[:8]}.zip"
+    with zipfile.ZipFile(zpath, "w", zipfile.ZIP_STORED) as z:
+        for f in files:
+            z.write(f, arcname=f.name)
+
+    def cleanup():
+        try:
+            zpath.unlink()
+        except OSError:
+            pass
+    return FileResponse(zpath, media_type="application/zip", filename=f"{ca.slugify(title, 50)}_clips.zip",
+                        background=BackgroundTask(cleanup))
+
+
 @app.delete("/api/projects/{pid}/clips/{n}/file")
 def delete_clip_file(pid: str, n: int):
     for f in (project_dir(pid) / "clips").glob(f"{n:02d}_*.mp4"):

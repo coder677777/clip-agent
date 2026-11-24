@@ -1097,9 +1097,72 @@ TOP_ASPECT = 1080 / 640   # face-cam panel in Reaction split
 BOT_ASPECT = 1080 / 1280  # gameplay panel
 
 
-def detect_facecam(video: Path, W: int, H: int, mode: str = "auto"):
+def _grab_frames(video: Path, count: int = 14) -> list:
+    """Evenly spaced frames (BGR arrays). Uses ffmpeg, which seeks reliably in cut-out sections where
+    OpenCV's frame seeking can land on the same or empty frames."""
+    import cv2
+    dur = media_duration(video)
+    out = []
+    tmp = video.parent / f"_fc_{video.stem}"
+    shutil.rmtree(tmp, ignore_errors=True)
+    tmp.mkdir(exist_ok=True)
+    try:
+        if dur > 0:
+            for k in range(count):
+                t = dur * (k + 0.5) / count
+                f = tmp / f"{k:02d}.jpg"
+                try:
+                    run_ffmpeg(["-ss", f"{t:.3f}", "-i", str(video), "-frames:v", "1", "-q:v", "3", str(f)])
+                except Exception:
+                    continue
+                img = cv2.imread(str(f))
+                if img is not None:
+                    out.append(img)
+        if len(out) < 3:  # fall back to OpenCV seeking
+            cap = cv2.VideoCapture(str(video))
+            frames = int(cap.get(cv2.CAP_PROP_FRAME_COUNT) or 0)
+            for k in range(count):
+                cap.set(cv2.CAP_PROP_POS_FRAMES, max(0, int(frames * (k + 0.5) / count)))
+                ok, fr = cap.read()
+                if ok:
+                    out.append(fr)
+            cap.release()
+    finally:
+        shutil.rmtree(tmp, ignore_errors=True)
+    return out
+
+
+def _faces_in(fr, yunet, casc) -> list[tuple]:
+    """All faces (x, y, w, h) in one frame, in full-frame pixels. Looks at the whole frame and, zoomed in,
+    at each corner, because face cams are usually small and in a corner."""
+    import cv2
+    Hf, Wf = fr.shape[:2]
+    regions = [(0, 0, Wf, Hf, 1280)]
+    hw, hh = Wf // 2, Hf // 2
+    regions += [(0, 0, hw, hh, 1280), (Wf - hw, 0, hw, hh, 1280), (0, Hf - hh, hw, hh, 1280), (Wf - hw, Hf - hh, hw, hh, 1280)]
+    found = []
+    for rx, ry, rw, rh, target in regions:
+        crop = fr[ry:ry + rh, rx:rx + rw]
+        scale = target / rw
+        small = cv2.resize(crop, None, fx=scale, fy=scale, interpolation=cv2.INTER_AREA if scale < 1 else cv2.INTER_LINEAR)
+        if yunet is not None:
+            yunet.setInputSize((small.shape[1], small.shape[0]))
+            _, dets = yunet.detect(small)
+            boxes = [] if dets is None else [tuple(d[:4]) for d in dets]
+        else:
+            g = cv2.cvtColor(small, cv2.COLOR_BGR2GRAY)
+            boxes = [tuple(b) for b in casc.detectMultiScale(g, scaleFactor=1.1, minNeighbors=6, minSize=(18, 18))]
+        for x, y, w, h in boxes:
+            if w > 4 and h > 4:
+                found.append((rx + x / scale, ry + y / scale, w / scale, h / scale))
+    return found
+
+
+def detect_facecam(video: Path, W: int, H: int, mode: str = "auto", memory: Path | None = None):
     """Crop box (x, y, w, h) for the streamer's face cam. mode: auto, tl, tr, bl, br.
-    Returns (box, note); box is None when no separate face cam was found (IRL footage)."""
+    Returns (box, note); box is None when no separate face cam was found (IRL footage).
+    The face cam is the face that stays in the SAME place across the clip; faces in the gameplay move around.
+    `memory` (a json file per video) keeps the spot found in earlier clips, for clips where it's unclear."""
     def fit(cx, cy, cw):
         cw = min(cw, W, H * TOP_ASPECT)
         ch = cw / TOP_ASPECT
@@ -1112,48 +1175,80 @@ def detect_facecam(video: Path, W: int, H: int, mode: str = "auto"):
         x = 0 if mode[1] == "l" else W - cw
         y = 0 if mode[0] == "t" else H - ch
         return fit(x + cw / 2, y + ch / 2, cw), "face cam corner chosen in settings"
+    remembered = None
+    if memory:
+        try:
+            saved = json.loads(memory.read_text(encoding="utf-8"))
+            if saved.get("size") == [W, H] and len(saved.get("box") or []) == 4:
+                remembered = tuple(int(v) for v in saved["box"])
+        except Exception:
+            pass
+
+    def remember(box):
+        if memory and box:
+            try:
+                memory.write_text(json.dumps({"size": [W, H], "box": list(box)}), encoding="utf-8")
+            except Exception:
+                pass
+        return box
+
+    def fallback(why):
+        if remembered:
+            return remembered, f"{why}, so I used the face cam spot found in your other clips of this video"
+        return None, why
+
     try:
         import cv2
     except Exception:
-        return None, "face detection isn't installed"
-    cap = cv2.VideoCapture(str(video))
-    frames = int(cap.get(cv2.CAP_PROP_FRAME_COUNT) or 0)
+        return fallback("face detection isn't installed")
     model = HERE / "models" / "face_detection_yunet_2023mar.onnx"
-    yunet = None
+    yunet = casc = None
     if hasattr(cv2, "FaceDetectorYN") and model.exists():
-        yunet = cv2.FaceDetectorYN.create(str(model), "", (320, 320), 0.75, 0.3, 50)
+        yunet = cv2.FaceDetectorYN.create(str(model), "", (320, 320), 0.6, 0.3, 50)
     else:
         haar = getattr(getattr(cv2, "data", None), "haarcascades", "") + "haarcascade_frontalface_default.xml"
         casc = cv2.CascadeClassifier(haar)
         if casc.empty():
-            cap.release()
-            return None, "face detection model is missing"
-    faces = []
-    for k in range(8):
-        cap.set(cv2.CAP_PROP_POS_FRAMES, max(0, int(frames * (k + 0.5) / 8)))
-        ok, fr = cap.read()
-        if not ok:
-            continue
-        scale = 640 / fr.shape[1]
-        small = cv2.resize(fr, None, fx=scale, fy=scale)
-        if yunet is not None:
-            yunet.setInputSize((small.shape[1], small.shape[0]))
-            _, found = yunet.detect(small)
-            found = [] if found is None else [tuple(f[:4]) for f in found]
-        else:
-            g = cv2.cvtColor(small, cv2.COLOR_BGR2GRAY)
-            found = [tuple(f) for f in casc.detectMultiScale(g, scaleFactor=1.1, minNeighbors=6, minSize=(18, 18))]
-        if len(found):
-            x, y, w, h = max(found, key=lambda f: f[2] * f[3])
-            faces.append((x / scale, y / scale, w / scale, h / scale))
-    cap.release()
-    if len(faces) < 2:
-        return None, "no face cam found"
-    faces.sort(key=lambda f: f[2])
-    x, y, w, h = faces[len(faces) // 2]
+            return fallback("face detection model is missing")
+    frames = _grab_frames(video)
+    if not frames:
+        return fallback("couldn't read frames from the clip")
+    sx, sy = W / frames[0].shape[1], H / frames[0].shape[0]  # frames can come back at another size
+
+    # group faces that sit in the same place (and are about the same size) across frames
+    clusters: list[dict] = []
+    for fi, fr in enumerate(frames):
+        for x, y, w, h in _faces_in(fr, yunet, casc):
+            x, y, w, h = x * sx, y * sy, w * sx, h * sy
+            cx, cy = x + w / 2, y + h / 2
+            for c in clusters:
+                mw = c["w"] / c["n"]
+                if (abs(cx - c["cx"] / c["n"]) < max(0.06 * W, mw * 0.8)
+                        and abs(cy - c["cy"] / c["n"]) < max(0.06 * H, mw * 0.8) and 0.5 < w / mw < 2.0):
+                    break
+            else:
+                c = {"cx": 0.0, "cy": 0.0, "w": 0.0, "n": 0, "frames": set(), "boxes": []}
+                clusters.append(c)
+            c["cx"] += cx
+            c["cy"] += cy
+            c["w"] += w
+            c["n"] += 1
+            c["frames"].add(fi)
+            c["boxes"].append((x, y, w, h))
+    need = max(2, math.ceil(len(frames) * 0.3))
+    steady = [c for c in clusters if len(c["frames"]) >= need]
+    if not steady:
+        return fallback("no face cam found")
+    best = max(steady, key=lambda c: (len(c["frames"]), -c["w"] / c["n"]))
+    boxes = sorted(best["boxes"], key=lambda b: b[2])
+    x, y, w, h = boxes[len(boxes) // 2]
     if w > 0.2 * W:  # the face fills the frame: this is a camera-only video, not gameplay + face cam
-        return None, "this looks like camera-only footage (no gameplay)"
-    return fit(x + w / 2, y + h * 1.05, w * 4.2), "face cam found automatically"
+        return fallback("this looks like camera-only footage (no gameplay)")
+    if remembered and len(best["frames"]) < need + 2:  # weak this time: trust the earlier, clearer find
+        rx, ry, rw, rh = remembered
+        if abs((rx + rw / 2) - (x + w / 2)) > 0.15 * W or abs((ry + rh / 2) - (y + h / 2)) > 0.15 * H:
+            return remembered, "face cam spot from your other clips of this video"
+    return remember(fit(x + w / 2, y + h * 1.05, w * 4.2)), "face cam found automatically"
 
 
 def layout_filter(layout: str, crop_x: float = 0.5) -> str:
@@ -1284,7 +1379,7 @@ def render_clip(clip: dict, plan: dict, workdir: Path, words_all: list[dict] | N
     text_png, text_y, vfilter = None, 0, None
     if style == "reaction":
         W, H = media_size(raw)
-        box, note = detect_facecam(raw, W, H, facecam)
+        box, note = detect_facecam(raw, W, H, facecam, memory=workdir / "facecam.json")
         if box is None:
             log(f"[{n}] Reaction split needs a face cam over gameplay ({note}). Using Meme caption style instead.")
             style = "meme"

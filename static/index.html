@@ -311,6 +311,12 @@ async function api(path, opts = {}) {
   if (!r.ok) throw new Error((data && (data.error || data.detail)) || ("Request failed (" + r.status + ")"));
   return data;
 }
+/* only one clip plays at a time: starting one pauses the rest */
+document.addEventListener("play", e => {
+  if (e.target.tagName !== "VIDEO") return;
+  document.querySelectorAll("video").forEach(v => { if (v !== e.target && !v.paused) v.pause(); });
+}, true);
+function pauseAllVideos() { document.querySelectorAll("video").forEach(v => { if (!v.paused) v.pause(); }); }
 function toast(msg) { const t = document.createElement("div"); t.className = "toast"; t.textContent = msg; t.setAttribute("role", "status");
   document.body.appendChild(t); setTimeout(() => t.remove(), 1900); }
 
@@ -532,12 +538,7 @@ async function showProject(pid) {
       <div class="thumb">${p.thumb ? `<img src="${esc(p.thumb)}" alt="">` : ""}<span class="dur">${hms(dur)}</span></div>
       <div><a class="back" href="#/">← Your videos</a>
         <h1>${esc(vid.title)}</h1>
-        <div class="muted">${p.clips.length} clips found${Object.keys(p.rendered).length ? `, ${Object.keys(p.rendered).length} made` : ""}</div>
-        <div class="acts">
-          ${Object.keys(p.rendered).length ? `<button class="btn small" id="openFolder" type="button">Open clips folder</button>` : ""}
-          ${vid.is_url && vid.url ? `<a class="btn small" href="${esc(vid.url)}" target="_blank" rel="noopener">Watch on YouTube</a>` : ""}
-          <button class="btn small ghost danger" id="delProject" type="button">Delete</button>
-        </div></div>
+        <div id="phead-info">${headInfoHTML(p)}</div></div>
     </div>
     ${timelineHTML(p, dur)}
     ${styleBoxHTML()}
@@ -545,6 +546,28 @@ async function showProject(pid) {
   bindProject(p, dur);
   renderMakebar();
   resumeRender(pid);
+}
+
+function headInfoHTML(p) {
+  const vid = p.video, made = Object.keys(p.rendered).length;
+  return `<div class="muted">${p.clips.length} clips found${made ? `, ${made} made` : ""}</div>
+    <div class="acts">
+      ${made ? `<a class="btn small primary" id="dlAll" href="/api/download-all/${encodeURIComponent(p.id)}" title="Saves every made clip in one .zip file">Download all (${made})</a>
+        <button class="btn small" id="openFolder" type="button">Open clips folder</button>` : ""}
+      ${vid.is_url && vid.url ? `<a class="btn small" href="${esc(vid.url)}" target="_blank" rel="noopener">Watch on YouTube</a>` : ""}
+      <button class="btn small ghost danger" id="delProject" type="button">Delete</button>
+    </div>`;
+}
+function bindHead(p) {
+  $("#openFolder")?.addEventListener("click", () => api("/api/open-folder", { method: "POST", body: JSON.stringify({ project: p.id }) }));
+  $("#delProject").onclick = async () => { if (!confirm("Delete this video's clip plan and any clips you made from it?")) return;
+    await api("/api/projects/" + encodeURIComponent(p.id), { method: "DELETE" }); location.hash = "#/"; };
+  const dl = $("#dlAll");
+  if (dl) dl.onclick = () => toast("Zipping your clips. The download starts in a moment.");
+}
+function refreshHead() {
+  const el = $("#phead-info"); if (!el || !S.project) return;
+  el.innerHTML = headInfoHTML(S.project); bindHead(S.project);
 }
 
 function timelineHTML(p, dur) {
@@ -627,9 +650,7 @@ function clipHTML(p, c) {
 }
 
 function bindProject(p, dur) {
-  $("#openFolder")?.addEventListener("click", () => api("/api/open-folder", { method: "POST", body: JSON.stringify({ project: p.id }) }));
-  $("#delProject").onclick = async () => { if (!confirm("Delete this video's clip plan and any clips you made from it?")) return;
-    await api("/api/projects/" + encodeURIComponent(p.id), { method: "DELETE" }); location.hash = "#/"; };
+  bindHead(p);
   bindClips(p);
   bindStyles(p);
   const tip = $("#tip");
@@ -665,7 +686,7 @@ function bindClips(p) {
       delete S.project.rendered[n];
       const c = S.project.clips.find(x => x.n == n);
       $(`#clip-${n} .pwrap`).innerHTML = phoneMock(S.project, c);
-      $(`#clip-${n} [data-dl]`)?.remove(); b.remove(); toast("Made clip deleted");
+      $(`#clip-${n} [data-dl]`)?.remove(); b.remove(); refreshHead(); toast("Made clip deleted");
     } catch (e) { toast(e.message); }
   });
   document.querySelectorAll(".check").forEach(cb => cb.onchange = () => setSel(+cb.dataset.n, cb.checked));
@@ -820,6 +841,7 @@ async function refreshRendered(pid) {
       }
     }
     S.project.rendered = p.rendered;
+    refreshHead();
   } catch {}
 }
 
@@ -833,6 +855,7 @@ function overlay(html, cls = "modal") {
 }
 function openPreview(p, c) {
   const start = Math.floor(c.start), end = Math.ceil(c.end);
+  pauseAllVideos();
   overlay(`<button class="btn small ghost x" data-close type="button">Close</button>
     <h2>${esc(c.title_top)}</h2>
     <iframe class="yt" src="https://www.youtube-nocookie.com/embed/${esc(p.video.id)}?start=${start}&end=${end}&autoplay=1&rel=0" allow="autoplay; encrypted-media" allowfullscreen title="Preview"></iframe>

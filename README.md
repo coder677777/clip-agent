@@ -41,8 +41,8 @@ open https://aistudio.google.com/apikey, sign in, click **Create API key**, copy
    first and last words, and the post caption. **Preview the moment** plays it from YouTube.
 3. Pick a style above the clips, fix any on-screen text by typing in the box, tick the clips you
    want, and press **Make clips**.
-4. Each clip appears in the page when it's done. **Download clip** saves it, and
-   **Open clips folder** shows all of them.
+4. Each clip appears in the page when it's done. **Download clip** saves it, **Download all** saves
+   every made clip in one .zip, and **Open clips folder** shows all of them.
 
 Styles:
 - **Meme caption**: the clip in a square in the middle, with a lowercase "when…" line over it
