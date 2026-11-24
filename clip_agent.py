@@ -1238,7 +1238,16 @@ def detect_facecam(video: Path, W: int, H: int, mode: str = "auto", memory: Path
     need = max(2, math.ceil(len(frames) * 0.3))
     steady = [c for c in clusters if len(c["frames"]) >= need]
     if not steady:
-        return fallback("no face cam found")
+        # Reuse the saved spot only if a face was seen there at least once. If none was, the stream is
+        # probably showing a fullscreen cutscene with no cam, and the meme style looks better than a
+        # crop of the cutscene.
+        if remembered:
+            rx, ry, rw, rh = remembered
+            seen = any(rx - rw * 0.25 <= c["cx"] / c["n"] <= rx + rw * 1.25 and
+                       ry - rh * 0.25 <= c["cy"] / c["n"] <= ry + rh * 1.25 for c in clusters)
+            if seen:
+                return remembered, "face cam was hard to see, so I used its spot from your other clips of this video"
+        return None, "no face cam in this part of the stream"
     best = max(steady, key=lambda c: (len(c["frames"]), -c["w"] / c["n"]))
     boxes = sorted(best["boxes"], key=lambda b: b[2])
     x, y, w, h = boxes[len(boxes) // 2]
